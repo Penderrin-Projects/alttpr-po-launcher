@@ -1,0 +1,221 @@
+<html>
+  <head>
+    <title>ALTTPR PO Tracker - Logic Settings</title>
+    <script type="text/javascript" src="js/jquery-3.3.1.js?v=20260131"></script>
+    <script type="text/javascript" src="js/jquery.powertip.js?v=20260131"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js?v=20260131"></script>
+    <script type="text/javascript" src="js/util.js?v=20260131"></script>
+    <script type="text/javascript" src="js/index.js?v=20260131"></script>
+    <script type="text/javascript" src="js/logicsettings.js?v=20260131" defer></script>
+    <script type="text/javascript" src="js/kofi.js?v=20260131"></script>
+    <script type="text/javascript" src="js/header.js?v=20260131"></script>
+    <link href="css/jquery.powertip.css?v=20260131" rel="stylesheet" />
+    <link href="css/launcher.css?v=20260131" rel="stylesheet" />
+    <link href="css/fonts.css?v=20260131" rel="stylesheet" />
+    <link href="css/sprites.css?v=20260131" rel="stylesheet" />
+    <link href="css/toast.css?v=20260131" rel="stylesheet" />
+    <link href="css/style.css?v=20260131" rel="stylesheet" />
+    <link href="css/logicsettings.css?v=20260131" rel="stylesheet" />
+    <link href="css/po-theme-secondary.css" rel="stylesheet" />
+    <style>
+      a {
+        color: #58a6ff;
+      }
+    </style>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="apple-touch-icon" sizes="180x180" href="images/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="images/icons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="images/icons/favicon-16x16.png" />
+    <script>
+      document.addEventListener("DOMContentLoaded", (event) => {
+        insertHeader();
+      });
+    </script>
+    <script src="js/po-themes.js"></script>
+  </head>
+  <body style="overflow: auto">
+    <div class="outer-wrapper">
+      <div>
+        <div class="header-main-div">
+          <a href="./index.html"><img src="./images/overlay/header.png" class="header-main-img" /></a>
+          <div id="headerTextElement" class="header-news-div"></div>
+        </div>
+        <div class="header-links">
+          <a href="./release.html">
+            <div class="header-link-img"><span class="header-text-span">Release Notes</span></div>
+          </a>
+          <a href="./instructions.html">
+            <div class="header-link-img"><span class="header-text-span">Instructions</span></div>
+          </a>
+          <a href="./issues.html">
+            <div class="header-link-img"><span class="header-text-span">Known Issues</span></div>
+          </a>
+          <a href="./contributors.html">
+            <div class="header-link-img"><span class="header-text-span">Contributors</span></div>
+          </a>
+          <a href="./downloads.html">
+            <div class="header-link-img"><span class="header-text-span">Downloads</span></div>
+          </a>
+        </div>
+      </div>
+      <div class="main-wrapper">
+        <div class="preset-div">
+          <div class="preset-header-div">
+            <span class="preset-header-text">Logic Presets (Applied and saved when selected)</span>
+          </div>
+          <button onclick="setAlllogics('all')">All Glitches/Sequence Breaks</button>
+          <button onclick="setAlllogics('nostupid')">Nothing Stupid</button><span class="south tooltop-character" title="Removes things like long hovers and bunny fairy revivals"> [?]</span>
+          <button onclick="setAlllogics('basic')">Basic</button><span class="south tooltop-character" title="Removes all hovers and bunny fairy revivals"> [?]</span>
+          <button onclick="setAlllogics('none')">None</button>
+          <br />
+          <div class="preset-header-div">
+            <span class="preset-header-text">Logic Settings</span>
+          </div>
+          <div class="logicrow">
+            <div class="logiccol">
+              <span class="preset-header-text" style="text-decoration: underline">Dungeon Logic</span>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canIceBreak" checked />
+                <label for="canIceBreak" class="logiclabel">Ice Breaker</label><span class="south tooltop-character" title="Use somaria to clip through the wall in IP Big Key Chest Room"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canHookClip" checked />
+                <label for="canHookClip" class="logiclabel">Hook Clip</label><span class="south tooltop-character" title="TODO"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canBombJump" checked />
+                <label for="canBombJump" class="logiclabel">Bomb Jumps</label>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canBombOrBonkCameraUnlock" checked />
+                <label for="canBombOrBonkCameraUnlock" class="logiclabel">Bonk/Bomb Camera Unlock</label><span class="south tooltop-character" title="Use to get past double Pokeys without a weapon"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canHover" checked />
+                <label for="canHover" class="logiclabel">Hover</label><span class="south tooltop-character" title="AAAAAAAAAA"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canHoverAlot" checked />
+                <label for="canHoverAlot" class="logiclabel">Long Hovers</label><span class="south tooltop-character" title="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canSpeckyClip" checked />
+                <label for="canSpeckyClip" class="logiclabel">Specky Clip</label><span class="south tooltop-character" title="Bypass flooding the first trench in Swamp Palace"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canFireSpooky" checked />
+                <label for="canFireSpooky" class="logiclabel">Spooky Action</label><span class="south tooltop-character" title="Use the firerod for spooky action"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canBombSpooky" checked />
+                <label for="canBombSpooky" class="logiclabel">Bomb Spooky</label><span class="south tooltop-character" title="Hit switches in other quadrants with bombs"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canHeraPot" checked />
+                <label for="canHeraPot" class="logiclabel">Herapot</label><span class="south tooltop-character" title="Get to the top of Hera with the hookshot and no Big Key"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canMimicClip" checked />
+                <label for="canMimicClip" class="logiclabel">Mimic Clip</label><span class="south tooltop-character" title="Clip Mimics into walls to bypass kill rooms without the bow"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canPotionCameraUnlock" checked />
+                <label for="canPotionCameraUnlock" class="logiclabel">Potion Camera Unlock</label><span class="south tooltop-character" title="Bypass Mimic kill rooms in front of PoD"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canMoldormBounce" checked />
+                <label for="canMoldormBounce" class="logiclabel">Moldorm Bounce</label><span class="south tooltop-character" title="Get to Aga 2 without the hookshot"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canDarkRoomNavigateBlind" checked />
+                <label for="canDarkRoomNavigateBlind" class="logiclabel">Lightless Dark Room Navigation</label><span class="south tooltop-character" title="Navigate dark rooms with no light sources"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canTorchRoomNavigateBlind" checked />
+                <label for="canTorchRoomNavigateBlind" class="logiclabel">Lightless Torch Room Navigation</label><span class="south tooltop-character" title="Navigate rooms with torches with no light sources"> [?]</span>
+              </div>
+              <!-- Unused? -->
+              <!-- <div>
+                                <input type="checkbox" class="logiccheckbox" id="canRushRightSidePod" checked>
+                                <label for="canRushRightSidePod" class="logiclabel">canRushRightSidePod</label><span class="south tooltop-character" title="TODO"> [?]</span>
+                            </div> -->
+            </div>
+            <div class="logiccol">
+              <span class="preset-header-text" style="text-decoration: underline">Overworld Logic</span>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canFairyReviveHover" checked />
+                <label for="canFairyReviveHover" class="logiclabel">Fairy Revive Hover</label><span class="south tooltop-character" title="Hover to EDM with a fairy revival"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canFakeFlipper" checked />
+                <label for="canFakeFlipper" class="logiclabel">Fake Flippers</label>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canOWFairyRevive" checked />
+                <label for="canOWFairyRevive" class="logiclabel">OW Fairy Revival</label><span class="south tooltop-character" title="Become link by dying as a bunny over deep water and have a fairy revive you"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canQirnJump" checked />
+                <label for="canQirnJump" class="logiclabel">Qirn Jump</label><span class="south tooltop-character" title="Get to East Dark World without the hammer, flippers or killing Aga 1"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canMirrorSuperBunny" checked />
+                <label for="canMirrorSuperBunny" class="logiclabel">Mirror Super Bunny</label><span class="south tooltop-character" title="Get superbunny state by using the mirror on the same frame as entering a cave"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canDungeonBunnyRevive" checked />
+                <label for="canDungeonBunnyRevive" class="logiclabel">Dungeon Bunny Revive</label><span class="south tooltop-character" title="Die in a dungeon as a bunny to become link"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canFakePowder" checked />
+                <label for="canFakePowder" class="logiclabel">Fake Powder</label><span class="south tooltop-character" title="Use somaria with no magic and the mushroom to use powder"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canWaterWalk" checked />
+                <label for="canWaterWalk" class="logiclabel">Water Walk</label><span class="south tooltop-character" title="I would walk on water, just to be with you."> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canZoraSplashDelete" checked />
+                <label for="canZoraSplashDelete" class="logiclabel">Zora Splash Delete</label><span class="south tooltop-character" title="Get the Zora ledge item with a splash delete"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canBunnyPocket" checked />
+                <label for="canBunnyPocket" class="logiclabel">Bunny Pocket</label><span class="south tooltop-character" title="Use items in the overworld as a bunny"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canFairyBarrierRevive" checked />
+                <label for="canFairyBarrierRevive" class="logiclabel">Fairy Barrier Revive</label><span class="south tooltop-character" title="Bypass the Aga 1 barrier with a fairy revive. Don't hardlock!"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canShockBlock" checked />
+                <label for="canShockBlock" class="logiclabel">Shock Block</label><span class="south tooltop-character" title="Use Somaria to bypass the Aga 1 barrier"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canTombRaider" checked />
+                <label for="canTombRaider" class="logiclabel">Tomb Raider</label><span class="south tooltop-character" title="Use hookshot to access King's Tomb from Graveyard Ledge"> [?]</span>
+              </div>
+            </div>
+            <div class="logiccol">
+              <span class="preset-header-text" style="text-decoration: underline">Glitch Logic</span><span class="south tooltop-character" title="Only applicable in glitched modes"> [?]</span>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canTamSwam" checked />
+                <label for="canTamSwam" class="logiclabel">Swim Clip</label><span class="south tooltop-character" title="Clip through terrain while swimming"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canBunnyCitrus" checked />
+                <label for="canBunnyCitrus" class="logiclabel">Bunny Citrus</label><span class="south tooltop-character" title="Can citrus clip as a bunny"> [?]</span>
+              </div>
+              <div>
+                <input type="checkbox" class="logiccheckbox" id="canMirrorWrap" checked />
+                <label for="canMirrorWrap" class="logiclabel:">Mirror Wrap</label><span class="south tooltop-character" title="Wrap the screen using the mirror"> [?]</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="handleSaveBack()">Save & Back</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

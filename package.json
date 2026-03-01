@@ -1,0 +1,38 @@
+{
+  "name": "alttpr-po-launcher",
+  "version": "2.0.0",
+  "description": "ALTTPR PO Launcher - Launcher, Tracker & Music Pack Manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.alttpr.po-launcher",
+    "productName": "ALTTPR PO Launcher",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.html",
+      "renderer.js",
+      "styles.css",
+      "icon.ico",
+      "icon.png",
+      "tracker/**/*"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "ALTTPR-PO-Launcher.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

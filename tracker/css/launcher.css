@@ -1,0 +1,279 @@
+body {
+  font-family: roboto_condensedregular, Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  background-image: url(../images/overlay/background.png);
+}
+
+label {
+  display: inline-block;
+}
+
+div {
+  margin: 5px 0;
+}
+
+.default-white-text {
+  font-size: 14px;
+  color: white;
+}
+
+.outer-wrapper {
+  width: 1080px;
+  margin: 20px;
+  margin: auto;
+}
+
+.main-wrapper {
+  width: 1070px;
+}
+
+.preset-div {
+  font-size: 24px;
+  font-family: ptsans_regular;
+  font-variant: small-caps;
+  background-color: rgb(12, 12, 12);
+  color: white;
+  padding: 6px;
+  border-color: #31801d;
+  border-width: 3px;
+  border-style: solid;
+  border-radius: 3px;
+}
+
+.preset-header {
+  cursor: pointer;
+}
+
+.preset-span {
+  padding-left: 20px;
+  font-size: 18px;
+  min-width: 136px;
+  display: inline-block;
+  font-weight: normal;
+  max-width: 136px;
+}
+
+.preset-span-double {
+  padding-left: 20px;
+  font-size: 18px;
+  min-width: 200px;
+  display: inline-block;
+  font-weight: normal;
+}
+
+.preset-btn-span {
+  min-width: 110px;
+  display: inline-block;
+}
+
+.tooltop-character {
+  font-size: 16px;
+  color: red;
+  cursor: pointer;
+}
+
+.preset-btn {
+  font-family: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  font-size: 14px;
+  background-color: #d6dfdc;
+  width: 140px;
+  padding: 4px 4px;
+  border: 2px solid #333632;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.preset-btn:hover {
+  background-color: #ffdc7a;
+  box-shadow: 0px 6px 8px rgba(0, 0, 0, 0.2);
+}
+
+.select-label {
+}
+
+.starting-inner-div {
+  height: 160px;
+  width: 860px;
+  margin: auto;
+}
+
+.header-main-div {
+  height: 120px;
+}
+
+.header-main-img {
+  width: 380px;
+  float: left;
+  cursor: pointer;
+}
+
+.header-news-div {
+  float: left;
+  margin: 10px;
+  width: 60%;
+  background: black;
+  padding: 5px;
+  border-color: #ffa700;
+  border-width: 3px;
+  border-style: solid;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+}
+
+.kofi-button {
+  margin-top: 0px;
+  margin-right: 3px;
+}
+
+.sprite-dropdown {
+  width: 280px;
+  font-size: 12px !important;
+}
+
+.header-links {
+  margin: auto;
+  height: 60px;
+}
+
+.header-link-img {
+  background-image: url(../images/overlay/headerimg.png);
+  background-size: contain;
+  width: 205px;
+  height: 50px;
+  margin: 4px;
+  font-family: triforce_regular, sans-serif;
+  float: left;
+}
+
+.header-text-span {
+  color: #fff;
+  font-size: 26px;
+  text-decoration: underline;
+  text-shadow: 2px 3px #7200ff;
+  position: relative;
+  top: 12px;
+  left: 12px;
+}
+
+.item {
+  width: 64px;
+  height: 64px;
+  opacity: 0.25;
+  float: left;
+}
+
+.moonpearl {
+  background-size: cover;
+  background-image: url(../images/items/moonpearl.png);
+}
+.bomb {
+  background-image: url(../images/items/bomb.png);
+}
+.bow0 {
+  background-image: url(../images/items/bow0.png);
+}
+.bow1 {
+  background-image: url(../images/items/bow1.png);
+}
+.bow2 {
+  background-image: url(../images/items/bow2.png);
+}
+.bow3 {
+  background-image: url(../images/items/bow3.png);
+}
+.boomerang0 {
+  background-image: url(../images/items/boomerang1.png);
+}
+.boomerang1 {
+  background-image: url(../images/items/boomerang1.png);
+}
+.boomerang2 {
+  background-image: url(../images/items/boomerang2.png);
+}
+.boomerang3 {
+  background-image: url(../images/items/boomerang3.png);
+}
+.hookshot {
+  background-image: url(../images/items/hookshot.png);
+}
+.mushroom {
+  background-image: url(../images/items/mushroom.png);
+}
+.powder {
+  background-image: url(../images/items/powder.png);
+}
+.firerod {
+  background-image: url(../images/items/firerod.png);
+}
+.icerod {
+  background-image: url(../images/items/icerod.png);
+}
+.bombos {
+  background-image: url(../images/items/bombos.png);
+}
+.ether {
+  background-image: url(../images/items/ether.png);
+}
+.quake {
+  background-image: url(../images/items/quake.png);
+}
+.lantern {
+  background-image: url(../images/items/lantern.png);
+}
+.hammer {
+  background-image: url(../images/items/hammer.png);
+}
+.shovel {
+  background-image: url(../images/items/shovel.png);
+}
+.net {
+  background-image: url(../images/items/net.png);
+}
+.book {
+  background-image: url(../images/items/book.png);
+}
+.bottle {
+  background-image: url(../images/items/bottle_empty.png);
+}
+.somaria {
+  background-image: url(../images/items/somaria.png);
+}
+.byrna {
+  background-image: url(../images/items/byrna.png);
+}
+.cape {
+  background-image: url(../images/items/cape.png);
+}
+.mirror {
+  background-image: url(../images/items/mirror.png);
+}
+.mirrorscroll {
+  background-image: url(../images/dungeons/map.png);
+}
+.boots {
+  background-image: url(../images/items/boots.png);
+}
+.pseudoboots {
+  background-image: url(../images/items/pseudoboots.png);
+}
+.glove0 {
+  background-image: url(../images/items/glove1.png);
+}
+.glove1 {
+  background-image: url(../images/items/glove1.png);
+}
+.glove2 {
+  background-image: url(../images/items/glove2.png);
+}
+.flippers {
+  background-image: url(../images/items/flippers.png);
+}
+.flute {
+  background-image: url(../images/items/flute.png);
+}
+.magic {
+  background-image: url(../images/items/magic.png);
+}

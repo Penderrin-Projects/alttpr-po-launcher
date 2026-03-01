@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ALTTPR PO Launcher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Custom Title Bar -->
+  <div class="titlebar">
+    <span class="titlebar-title">ALTTPR <span>PO Launcher</span></span>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn minimize" id="btn-minimize">—</button>
+      <button class="titlebar-btn maximize" id="btn-maximize">☐</button>
+      <button class="titlebar-btn close" id="btn-close">✕</button>
+    </div>
+  </div>
+
+  <!-- Setup Overlay -->
+  <div class="setup-overlay" id="setup-overlay">
+    <div class="setup-icon">🎵</div>
+    <div class="setup-title">Welcome</div>
+    <div class="setup-desc">
+      Select the folder containing your MSU music pack subfolders.
+    </div>
+    <button class="setup-btn" id="setup-btn">Choose Folder</button>
+  </div>
+
+  <!-- Main UI -->
+  <div class="container">
+
+    <!-- ROM Section -->
+    <div class="rom-section">
+      <div class="section-header">
+        <div class="section-label">ROM</div>
+        <div class="rom-actions">
+          <button class="icon-btn" id="btn-rom-refresh" title="Load newest ROM from staging folder">↻</button>
+          <button class="icon-btn" id="btn-rom-staging-folder" title="Set staging folder">📁</button>
+        </div>
+      </div>
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-icon" id="drop-icon">🗡️</div>
+        <div class="drop-label" id="drop-label">Drop ROM here</div>
+        <div class="drop-filename" id="drop-filename"></div>
+      </div>
+    </div>
+
+    <!-- Pack List -->
+    <div class="pack-list-wrap">
+      <div class="pack-list-header">
+        <div class="section-label">Music Packs</div>
+        <div class="pack-list-actions">
+          <button class="icon-btn" id="btn-refresh" title="Rescan packs">↻</button>
+          <button class="icon-btn" id="btn-change-folder" title="Change packs folder">📁</button>
+        </div>
+      </div>
+      <div class="pack-list" id="pack-list"></div>
+      <div class="pack-count" id="pack-count"></div>
+    </div>
+
+    <!-- Tracker Buttons -->
+    <div class="tracker-bar">
+      <button class="tracker-btn" id="btn-launch-tracker" title="Open item tracker window">🗺️ Launch Tracker</button>
+      <button class="tracker-btn secondary" id="btn-tracker-settings" title="Open tracker configuration">⚙ Tracker Settings</button>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+      <button class="play-btn disabled" id="play-btn" disabled>▶ Play</button>
+      <button class="settings-btn" id="settings-btn" title="Launch settings">⚙</button>
+    </div>
+
+    <!-- Layout Buttons -->
+    <div class="layout-bar">
+      <button class="layout-btn" id="btn-save-layout-sfc" title="Save current window layout for .sfc ROMs">💾 Save SFC Layout</button>
+      <button class="layout-btn" id="btn-save-layout-aplttp" title="Save current window layout for .aplttp ROMs">💾 Save AP Layout</button>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Ready</span>
+    </div>
+  </div>
+
+  <!-- Settings Panel -->
+  <div class="settings-panel" id="settings-panel">
+    <div class="settings-header">
+      <span class="settings-title">Settings</span>
+      <button class="settings-close" id="settings-close">✕</button>
+    </div>
+
+    <!-- Theme Picker -->
+    <div class="theme-row">
+      <span class="theme-label">Theme</span>
+      <div class="theme-swatches" id="theme-swatches"></div>
+    </div>
+
+    <!-- Emulator -->
+    <div class="companion-row">
+      <input type="checkbox" class="companion-checkbox" id="chk-emulator" checked>
+      <label class="companion-label" for="chk-emulator">Emulator</label>
+      <span class="companion-path not-set" id="emulator-path">Not set</span>
+      <button class="companion-browse" id="btn-browse-emulator">Browse</button>
+    </div>
+    <div class="sub-option" id="lua-option" style="display:none">
+      <input type="checkbox" class="companion-checkbox" id="chk-lua" checked>
+      <label for="chk-lua">Open Lua Console</label>
+    </div>
+    <div class="sub-option" id="lua-script-option" style="display:none">
+      <span class="companion-path not-set" id="lua-script-path" style="flex:1;font-size:10px">No script (console only)</span>
+      <button class="companion-browse" id="btn-browse-lua-script">Browse .lua</button>
+    </div>
+
+    <!-- Tracker (built-in) -->
+    <div class="companion-row">
+      <input type="checkbox" class="companion-checkbox" id="chk-tracker" checked>
+      <label class="companion-label" for="chk-tracker">Tracker</label>
+      <span class="companion-path" style="flex:1;font-size:10px;color:var(--green)">Built-in</span>
+    </div>
+
+    <!-- SNI -->
+    <div class="companion-row">
+      <input type="checkbox" class="companion-checkbox" id="chk-sni" checked>
+      <label class="companion-label" for="chk-sni">SNI</label>
+      <span class="companion-path not-set" id="sni-path">Not set</span>
+      <button class="companion-browse" id="btn-browse-sni">Browse</button>
+    </div>
+
+    <!-- Timer -->
+    <div class="companion-row">
+      <input type="checkbox" class="companion-checkbox" id="chk-timer" checked>
+      <label class="companion-label" for="chk-timer">Timer</label>
+      <span class="companion-path not-set" id="timer-path">Not set</span>
+      <button class="companion-browse" id="btn-browse-timer">Browse</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

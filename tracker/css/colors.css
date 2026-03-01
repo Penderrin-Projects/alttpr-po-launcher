@@ -1,0 +1,291 @@
+:root {
+  --prize-uncollected-color: #8b0000;
+  --prize-collected-color: #008000;
+  --available-color: #3dfd3d;
+  --unavailable-color: #ff2828;
+  --possible-color: #ffff52;
+  --information-color: #fbb025;
+  --darkavailable-color: #9255fd;
+  --darkpossible-color: #9255fd;
+  --partialavailable-color: #049a04;
+  --highlight-color: #ffee00;
+  --remindme-color: #ffee00;
+  --opened-color: #808080a6;
+  --connector-color: #ff00f9;
+  --connector1-color: #ff50f9;
+  --connector3-color: #bf00ff;
+  --hc-color: #14439a;
+  --ct-color: #00eaff;
+  --ep-color: #00eaff;
+  --dp-color: #cdca27;
+  --dp_n-color: #00eaff;
+  --toh-color: #00eaff;
+  --pod-color: #00eaff;
+  --sp-color: #00eaff;
+  --sw_n-color: #00eaff;
+  --sw_w-color: #00eaff;
+  --sw_e-color: #00eaff;
+  --sw-color: #00eaff;
+  --tt-color: #00eaff;
+  --ip-color: #00eaff;
+  --mm-color: #00eaff;
+  --tr-color: #d44a00;
+  --gt-color: #00eaff;
+  --ganon-color: #00eaff;
+  --link-color: #00ddff;
+  --sanc-color: #00ddff;
+  --mount-color: #00ddff;
+  --item-color: #51ff3a;
+	--magic-color: #ff7b00;
+	--kid-color: #ff7b00;
+	--smith-color: #ff7b00;
+	--bat-color: #ff7b00;
+	--lib-color: #ff7b00;
+	--saha-color: #ff7b00;
+	--mimc-color: #ff7b00;
+	--rupee-color: #51ff3a;
+	--shop-color: #51ff3a;
+	--dark-color: #2433ff;
+	--bomb-color: #ff7b00;
+	--bump-color: #ff7b00;
+	--spike-color: #ff7b00;
+	--hook-color: #ff7b00;
+	--dam-color: #ff7b00;
+
+}
+
+#tracker .prize.collected {
+  border-color: var(--prize-collected-color) !important;
+}
+
+#tracker .prize {
+  border-color: var(--prize-uncollected-color) !important;
+}
+
+.unavailable {
+  background-color: var(--unavailable-color);
+}
+.available {
+  background-color: var(--available-color);
+}
+.possible {
+  background-color: var(--possible-color);
+}
+.information {
+  background-color: var(--information-color);
+}
+.darkavailable {
+  background-color: var(--darkavailable-color);
+}
+.partialavailable {
+  background-color: var(--partialavailable-color);
+}
+.darkpossible {
+  background-color: var(--darkpossible-color);
+}
+/* .highlight {
+  border-color: var(--highlight-color);
+} */
+.remindme {
+  background-color: var(--remindme-color) !important;
+}
+.opened {
+  background-color: var(--opened-color);
+  border-width: 0px;
+}
+.bonked {
+  background-color: var(--opened-color);
+  width: 12;
+  height: 12;
+  border-width: 0px;
+}
+.bonkinfo {
+  background-color: var(--information-color);
+  width: 12;
+  height: 12;
+}
+
+.unavailabledungeon {
+  background-color: var(--unavailable-color);
+}
+.unavailableconnector {
+  background-color: var(--unavailable-color);
+}
+.unavailabledark {
+  background-color: var(--unavailable-color);
+}
+.unavailableitemlocked {
+  background-color: var(--unavailable-color);
+}
+.unavailableother {
+  background-color: var(--unavailable-color);
+}
+.unavailablekeylocation {
+  background-color: var(--unavailable-color);
+}
+
+.availableconnector {
+  background-color: var(--connector-color);
+}
+.availableunknownconnector {
+  background-color: var(--connector-color);
+}
+
+.availablecastleconnector {
+  background-color: var(--hc-color);
+}
+.availabledesertconnector {
+  background-color: var(--dp-color);
+}
+.availableskullconnector {
+  background-color: var(--sw-color);
+}
+.availableturtleconnector {
+  background-color: var(--tr-color);
+}
+
+.availablect {
+  background-color: var(--ct-color);
+  border-radius: 0% !important
+}
+.availableep {
+  background-color: var(--ep-color);
+  border-radius: 0% !important
+}
+.availabledp_n {
+  background-color: var(--dp_n-color);
+  border-radius: 0% !important
+}
+.availabletoh {
+  background-color: var(--toh-color);
+  border-radius: 0% !important
+}
+.availablepod {
+  background-color: var(--pod-color);
+  border-radius: 0% !important
+}
+.availablesp {
+  background-color: var(--sp-color);
+  border-radius: 0% !important
+}
+.availablesw {
+  background-color: var(--sw-color);
+  border-radius: 0% !important
+}
+.availablett {
+  background-color: var(--tt-color);
+  border-radius: 0% !important
+}
+.availableip {
+  background-color: var(--ip-color);
+  border-radius: 0% !important
+}
+.availablemm {
+  background-color: var(--mm-color);
+  border-radius: 0% !important
+}
+
+.availablegt {
+  background-color: var(--gt-color);
+  border-radius: 0% !important
+}
+
+.availableganon {
+  background-color: var(--ganon-color);
+  border-radius: 0% !important
+}
+
+.availablelink {
+  background-color: var(--link-color);
+}
+
+.availablesanc {
+  background-color: var(--sanc-color);
+}
+
+.availablemount {
+  background-color: var(--mount-color);
+}
+
+.availableitem {
+  background-color: var(--item-color);
+}
+
+.availablemagic {
+  background-color: var(--magic-color);
+}
+
+.availablekid {
+  background-color: var(--kid-color);
+}
+
+.availablesmith {
+  background-color: var(--smith-color);
+}
+
+.availablebat {
+  background-color: var(--bat-color);
+}
+
+.availablelib {
+  background-color: var(--lib-color);
+} 
+
+.availablesaha {
+  background-color: var(--saha-color);
+}
+
+.availablemimc {
+  background-color: var(--mimc-color);
+} 
+
+.availablerupee {
+  background-color: var(--rupee-color);
+}
+
+.availableshop {
+  background-color: var(--shop-color);
+}
+
+.availabledark {
+  background-color: var(--dark-color);
+}
+
+.availablebomb {
+  background-color: var(--bomb-color);
+}
+
+.availablebump {
+  background-color: var(--bump-color);
+}
+
+.availablespike {
+  background-color: var(--spike-color);
+}
+
+.availablehook {
+  background-color: var(--hook-color);
+}
+
+.availabledam {
+  background-color: var(--dam-color);
+}
+
+
+.crossedright {
+  background: linear-gradient(
+    to top right,
+    rgba(0, 0, 0, 0) calc(50% - 1px),
+    var(--connector-color) calc(50% - 0.5px) calc(50% + 0.5px),
+    rgba(0, 0, 0, 0) calc(50% + 1px)
+  );
+}
+.crossedleft {
+  background: linear-gradient(
+    to top left,
+    rgba(0, 0, 0, 0) calc(50% - 1px),
+    var(--connector-color) calc(50% - 0.5px) calc(50% + 0.5px),
+    rgba(0, 0, 0, 0) calc(50% + 1px)
+  );
+}
+

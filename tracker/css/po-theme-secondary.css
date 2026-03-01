@@ -1,0 +1,264 @@
+/* ALTTPR PO Tracker - Secondary Window Theme */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+/* ===== THEME COLOR VARIABLES ===== */
+:root {
+  --accent-color: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-glow: rgba(88, 166, 255, 0.15);
+  --theme-bg: #0a0f1a;
+  --theme-panel: #0c1018;
+  --theme-input: #070b12;
+  --theme-border: #1a2744;
+  --theme-border-light: #1e2d4a;
+  --theme-header-bg: #060a12;
+}
+
+/* ===== BASE ===== */
+html {
+  background-color: var(--theme-bg) !important;
+}
+
+body {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 13px !important;
+  background-image: none !important;
+  background-color: var(--theme-bg) !important;
+  color: #e6edf3 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden;
+}
+
+div {
+  margin: 0 !important;
+}
+
+a {
+  color: var(--accent-color) !important;
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover) !important;
+  text-decoration: underline;
+}
+
+/* ===== HIDE OLD HEADER ===== */
+.header-main-div,
+.header-links,
+.header-news-div {
+  display: none !important;
+}
+
+/* ===== LAYOUT ===== */
+.outer-wrapper {
+  width: auto !important;
+  max-width: 700px !important;
+  margin: 0 auto !important;
+  padding: 16px 20px !important;
+}
+
+.main-wrapper {
+  width: 100% !important;
+}
+
+/* ===== PANELS ===== */
+.preset-div {
+  font-size: 13px !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-variant: normal !important;
+  background-color: var(--theme-panel) !important;
+  color: #e6edf3 !important;
+  padding: 16px 20px !important;
+  border-color: var(--theme-border) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-radius: 8px !important;
+}
+
+/* ===== HEADERS ===== */
+.preset-header-div {
+  margin-bottom: 8px !important;
+  margin-top: 12px !important;
+  padding-bottom: 6px !important;
+  border-bottom: 1px solid var(--theme-border-light) !important;
+}
+
+.preset-header-div:first-child {
+  margin-top: 0 !important;
+}
+
+.preset-header-text {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: #f0f6fc !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+}
+
+/* ===== BUTTONS ===== */
+button {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 11px !important;
+  background-color: var(--theme-border-light) !important;
+  color: #c9d1d9 !important;
+  border: 1px solid var(--theme-border) !important;
+  border-radius: 6px !important;
+  padding: 5px 12px !important;
+  cursor: pointer !important;
+  margin-right: 6px !important;
+  margin-bottom: 6px !important;
+  transition: background-color 0.15s ease !important;
+}
+
+button:hover {
+  background-color: var(--theme-border) !important;
+  color: #f0f6fc !important;
+}
+
+/* ===== LOGIC SETTINGS ===== */
+.logicrow {
+  display: flex !important;
+  width: 100% !important;
+  justify-content: space-between !important;
+  gap: 24px !important;
+  margin-top: 8px !important;
+}
+
+.logiccol {
+  flex: 1 !important;
+  min-width: 0 !important;
+}
+
+.logiccol > div {
+  padding: 3px 0 !important;
+  border-bottom: 1px solid var(--theme-border-light);
+  display: flex !important;
+  align-items: center !important;
+}
+
+.logiccol > div:last-child {
+  border-bottom: none;
+}
+
+.logiccol > span {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--accent-color) !important;
+  text-decoration: underline !important;
+  display: block !important;
+  margin-bottom: 6px !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+}
+
+.logiclabel {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+  color: #c9d1d9 !important;
+  font-weight: 400 !important;
+  cursor: pointer;
+  white-space: nowrap !important;
+}
+
+.logiccheckbox {
+  accent-color: var(--accent-color) !important;
+  margin-right: 6px !important;
+  cursor: pointer;
+}
+
+/* ===== TOOLTIPS ===== */
+.tooltop-character {
+  font-size: 10px !important;
+  color: #484f58 !important;
+  cursor: help;
+  display: inline !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+}
+
+.tooltop-character:hover {
+  color: var(--accent-color) !important;
+}
+
+/* ===== COLOR SETTINGS ===== */
+.color-section {
+  margin-bottom: 12px !important;
+}
+
+.color-selector {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 3px 0 !important;
+}
+
+.color-selector label {
+  width: 200px !important;
+  min-width: 200px !important;
+  flex-shrink: 0 !important;
+}
+
+label {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  color: #c9d1d9 !important;
+  font-variant: normal !important;
+  text-transform: none !important;
+}
+
+input[type="color"] {
+  border: 1px solid var(--theme-border) !important;
+  border-radius: 4px !important;
+  background-color: var(--theme-panel) !important;
+  cursor: pointer;
+}
+
+input[type="text"],
+input[type="number"] {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 12px !important;
+  background-color: var(--theme-input) !important;
+  color: #c9d1d9 !important;
+  border: 1px solid var(--theme-border) !important;
+  border-radius: 4px !important;
+  padding: 3px 6px !important;
+}
+
+input[type="range"] {
+  accent-color: var(--accent-color) !important;
+}
+
+select {
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 12px !important;
+  background-color: var(--theme-input) !important;
+  color: #c9d1d9 !important;
+  border: 1px solid var(--theme-border) !important;
+  border-radius: 4px !important;
+  padding: 3px 6px !important;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--theme-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}

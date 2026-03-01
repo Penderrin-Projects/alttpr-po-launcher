@@ -1,0 +1,333 @@
+<html>
+  <head>
+    <title>ALTTPR PO Tracker - Color Settings</title>
+    <script type="text/javascript" src="js/jquery-3.3.1.js?v=20260131"></script>
+    <script type="text/javascript" src="js/jquery.powertip.js?v=20260131"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js?v=20260131"></script>
+    <script type="text/javascript" src="js/util.js?v=20260131"></script>
+    <script type="text/javascript" src="js/index.js?v=20260131"></script>
+    <script type="text/javascript" src="js/colors.js?v=20260131" defer></script>
+    <script type="text/javascript" src="js/kofi.js?v=20260131"></script>
+    <script type="text/javascript" src="js/header.js?v=20260131"></script>
+    <link href="css/jquery.powertip.css?v=20260131" rel="stylesheet" />
+    <link href="css/launcher.css?v=20260131" rel="stylesheet" />
+    <link href="css/fonts.css?v=20260131" rel="stylesheet" />
+    <link href="css/sprites.css?v=20260131" rel="stylesheet" />
+    <link href="css/toast.css?v=20260131" rel="stylesheet" />
+    <link href="css/style.css?v=20260131" rel="stylesheet" />
+    <link href="css/po-theme-secondary.css" rel="stylesheet" />
+    <style>
+      a {
+        color: #58a6ff;
+      }
+    </style>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="apple-touch-icon" sizes="180x180" href="images/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="images/icons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="images/icons/favicon-16x16.png" />
+    <script>
+      document.addEventListener("DOMContentLoaded", (event) => {
+        insertHeader();
+      });
+    </script>
+    <script src="js/po-themes.js"></script>
+  </head>
+  <body style="overflow: auto">
+    <div class="outer-wrapper">
+      <div>
+        <div class="header-main-div">
+          <a href="./index.html"><img src="./images/overlay/header.png" class="header-main-img" /></a>
+          <div id="headerTextElement" class="header-news-div"></div>
+        </div>
+        <div class="header-links">
+          <a href="./release.html">
+            <div class="header-link-img"><span class="header-text-span">Release Notes</span></div>
+          </a>
+          <a href="./instructions.html">
+            <div class="header-link-img"><span class="header-text-span">Instructions</span></div>
+          </a>
+          <a href="./issues.html">
+            <div class="header-link-img"><span class="header-text-span">Known Issues</span></div>
+          </a>
+          <a href="./contributors.html">
+            <div class="header-link-img"><span class="header-text-span">Contributors</span></div>
+          </a>
+          <a href="./downloads.html">
+            <div class="header-link-img"><span class="header-text-span">Downloads</span></div>
+          </a>
+        </div>
+      </div>
+      <div class="main-wrapper">
+        <div class="preset-div">
+          <div class="preset-header-div">
+            <span class="preset-header-text">Color Presets (Applied when selected)</span>
+          </div>
+          <button onclick="setAllColors('mike')">StructuralMike</button>
+          <button onclick="setAllColors('classic')">Classic</button>
+          <button onclick="setAllColors('alt')">Alternative</button><span class="south tooltop-character" title="This will load an alternate color scheme to assist with color-blind users"> [?]</span>
+          <br />
+          <button onclick="saveToDownload()">Save to file</button>
+          <input type="file" id="color-file-input" accept=".json" style="display: none" onchange="loadFromFile(this)" />
+          <input type="button" value="Load from file" onclick="document.getElementById('color-file-input').click();" />
+          <div class="preset-header-div">
+            <span class="preset-header-text">Current Colors - Saved automatically when changed</span>
+            <br />
+            <span style="font-style: italic">(Sliders set transparency, does not show effect on this page)</span>
+          </div>
+          <span class="preset-header-text" style="text-decoration: underline">General</span>
+          <div class="color-selector">
+            <label for="prize-uncollected-color">Prize Uncollected Border:</label>
+            <input class="input-color-picker" name="prize-uncollected-color" type="color" data-id="prize-uncollected-color" value="#00ff00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="prize-uncollected-color" name="prize-uncollected-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="prize-collected-color">Prize Collected Border:</label>
+            <input class="input-color-picker" name="prize-collected-color" type="color" data-id="prize-collected-color" value="#00ff00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="prize-collected-color" name="prize-collected-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="available-color">Available:</label>
+            <input class="input-color-picker" name="available-color" type="color" data-id="available-color" value="#00ff00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="available-color" name="available-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="unavailable-color">Unvailable:</label>
+            <input class="input-color-picker" name="unavailable-color" type="color" data-id="unavailable-color" value="#ff0000" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="unavailable-color" name="unavailable-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="possible-color">Possible:</label>
+            <input class="input-color-picker" name="possible-color" type="color" data-id="possible-color" value="#ffff00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="possible-color" name="possible-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="opened-color">Opened/Checked:</label>
+            <input class="input-color-picker" name="opened-color" type="color" data-id="opened-color" value="#808080" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="opened-color" name="opened-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="information-color">Information:</label>
+            <input class="input-color-picker" name="information-color" type="color" data-id="information-color" value="#ffa500" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="information-color" name="information-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="darkavailable-color">Out of Logic:</label>
+            <input class="input-color-picker" name="darkavailable-color" type="color" data-id="darkavailable-color" value="#2433ff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="darkavailable-color" name="darkavailable-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <!-- Unused? -->
+          <!-- <div class="color-selector">
+            <label for="darkpossible-color">Dark Possible:</label>
+            <input class="input-color-picker" name="darkpossible-color" type="color" data-id="darkpossible-color" value="#800080" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="darkpossible-color" name="darkpossible-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div> -->
+          <div class="color-selector">
+            <label for="partialavailable-color">Partial Available:</label>
+            <input class="input-color-picker" name="partialavailable-color" type="color" data-id="partialavailable-color" value="#17aaee" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="partialavailable-color" name="partialavailable-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <!-- <div class="color-selector">
+            <label for="highlight-color">Highlighted:</label>
+            <input class="input-color-picker" name="highlight-color" type="color" data-id="highlight-color" value="#17aaee" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="highlight-color" name="highlight-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div> -->
+          <div class="color-selector">
+            <label for="remindme-color">Reminder:</label>
+            <input class="input-color-picker" name="remindme-color" type="color" data-id="remindme-color" value="#17aaee" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="remindme-color" name="remindme-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <br />
+          <span class="preset-header-text" style="text-decoration: underline">Entrance</span>
+          <div class="color-selector">
+            <label for="connector-color">Connectors</label>
+            <input class="input-color-picker" name="connector-color" type="color" data-id="connector-color" value="#ff00f9" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="connector-color" name="connector-color-opacity" value="1" min="0" max="1" step="0.05" />
+            <!-- <label for="connector1-color">1-Way</label> -->
+            <!-- <input class="input-color-picker" name="connector1-color" type="color" data-id="connector1-color" value="#ff50f9">
+						<label for="connector3-color">3-Way</label>
+						<input class="input-color-picker" name="connector3-color" type="color" data-id="connector3-color" value="#bf00ff"> -->
+          </div>
+          <!-- HC CT EP DP TOH POD SP SW TT IP MM TR -->
+          <div class="color-selector">
+            <label for="hc-color">Hyrule Castle</label>
+            <input class="input-color-picker" name="hc-color" type="color" data-id="hc-color" value="#14439a" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="hc-color" name="hc-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="ep-color">Eastern Palace</label>
+            <input class="input-color-picker" name="ep-color" type="color" data-id="ep-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="ep-color" name="ep-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="dp-color">Desert Palace</label>
+            <input class="input-color-picker" name="dp-color" type="color" data-id="dp-color" value="#cdca27" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="dp-color" name="dp-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="dp_n-color">DP North</label>
+            <input class="input-color-picker" name="dp_n-color" type="color" data-id="dp_n-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="dp_n-color" name="dp_n-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="toh-color">Tower of Hera</label>
+            <input class="input-color-picker" name="toh-color" type="color" data-id="toh-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="toh-color" name="toh-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="ct-color">Castle Tower</label>
+            <input class="input-color-picker" name="ct-color" type="color" data-id="ct-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="ct-color" name="ct-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="pod-color">Palace of Darkness</label>
+            <input class="input-color-picker" name="pod-color" type="color" data-id="pod-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="pod-color" name="pod-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="sp-color">Swamp Palace</label>
+            <input class="input-color-picker" name="sp-color" type="color" data-id="sp-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="sp-color" name="sp-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="sw-color">Skull Woods</label>
+            <input class="input-color-picker" name="sw-color" type="color" data-id="sw-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="sw-color" name="sw-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="tt-color">Thieves' Town</label>
+            <input class="input-color-picker" name="tt-color" type="color" data-id="tt-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="tt-color" name="tt-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="ip-color">Ice Palace</label>
+            <input class="input-color-picker" name="ip-color" type="color" data-id="ip-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="ip-color" name="ip-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="mm-color">Misery Mire</label>
+            <input class="input-color-picker" name="mm-color" type="color" data-id="mm-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="mm-color" name="mm-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="tr-color">Turtle Rock</label>
+            <input class="input-color-picker" name="tr-color" type="color" data-id="tr-color" value="#d44a00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="tr-color" name="tr-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="gt-color">Ganons Tower</label>
+            <input class="input-color-picker" name="gt-color" type="color" data-id="gt-color" value="#00eaff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="gt-color" name="gt-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="ganon-color">Ganon</label>
+            <input class="input-color-picker" name="ganon-color" type="color" data-id="ganon-color" value="#000000" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="ganon-color" name="ganon-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <br />
+          <span class="preset-header-text" style="text-decoration: underline">Starting Locations</span>
+          <div class="color-selector">
+            <label for="link-color">Link's House</label>
+            <input class="input-color-picker" name="link-color" type="color" data-id="link-color" value="#00ddff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="link-color" name="link-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="sanc-color">Sanctuary</label>
+            <input class="input-color-picker" name="sanc-color" type="color" data-id="sanc-color" value="#00ddff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="sanc-color" name="sanc-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="mount-color">Mountain</label>
+            <input class="input-color-picker" name="mount-color" type="color" data-id="mount-color" value="#00ddff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="mount-color" name="mount-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <br />
+          <span class="preset-header-text" style="text-decoration: underline">Key Locations</span>
+          <div class="color-selector">
+            <label for="item-color">Item</label>
+            <input class="input-color-picker" name="item-color" type="color" data-id="item-color" value="#51ff3a" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="item-color" name="item-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="magic-color">Magic</label>
+            <input class="input-color-picker" name="magic-color" type="color" data-id="magic-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="magic-color" name="magic-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="kid-color">Kid</label>
+            <input class="input-color-picker" name="kid-color" type="color" data-id="kid-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="kid-color" name="kid-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="smith-color">Smith</label>
+            <input class="input-color-picker" name="smith-color" type="color" data-id="smith-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="smith-color" name="smith-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="bat-color">Bat</label>
+            <input class="input-color-picker" name="bat-color" type="color" data-id="bat-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="bat-color" name="bat-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="lib-color">Library</label>
+            <input class="input-color-picker" name="lib-color" type="color" data-id="lib-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="lib-color" name="lib-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="saha-color">Sahasrahla</label>
+            <input class="input-color-picker" name="saha-color" type="color" data-id="saha-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="saha-color" name="saha-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="mimc-color">Mimic</label>
+            <input class="input-color-picker" name="mimc-color" type="color" data-id="mimc-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="mimc-color" name="mimc-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="rupee-color">Rupee</label>
+            <input class="input-color-picker" name="rupee-color" type="color" data-id="rupee-color" value="#51ff3a" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="rupee-color" name="rupee-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="shop-color">Shop</label>
+            <input class="input-color-picker" name="shop-color" type="color" data-id="shop-color" value="#51ff3a" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="shop-color" name="shop-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="dark-color">Dark</label>
+            <input class="input-color-picker" name="dark-color" type="color" data-id="dark-color" value="#2433ff" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="dark-color" name="dark-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="bomb-color">Bomb</label>
+            <input class="input-color-picker" name="bomb-color" type="color" data-id="bomb-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="bomb-color" name="bomb-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="bump-color">Bumper</label>
+            <input class="input-color-picker" name="bump-color" type="color" data-id="bump-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="bump-color" name="bump-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="spike-color">Spike</label>
+            <input class="input-color-picker" name="spike-color" type="color" data-id="spike-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="spike-color" name="spike-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="hook-color">Hook</label>
+            <input class="input-color-picker" name="hook-color" type="color" data-id="hook-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="hook-color" name="hook-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <div class="color-selector">
+            <label for="dam-color">Dam</label>
+            <input class="input-color-picker" name="dam-color" type="color" data-id="dam-color" value="#ff7b00" />
+            <input type="range" class="input-color-opacity-slider" title="Opacity" data-id="dam-color" name="dam-color-opacity" value="1" min="0" max="1" step="0.05" />
+          </div>
+          <!-- Button to go back -->
+          <button onclick="window.location.href='./index.html'">Save & Back</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
