@@ -1275,6 +1275,36 @@ function getLuaLauncherPath(realScriptPath) {
 }
 
 // ============================================================
+//  Companion App Launch
+// ============================================================
+// Start the emulator / SNI / timer and leave it running on its own.
+//
+// This is deliberately the same launch as before: exec() ran
+//   cmd.exe /d /s /c "<command line>"   with cwd = the app's folder,
+// and spawn(..., { shell: true }) produces exactly that. The one difference is
+// stdio: 'ignore'. exec() pipes the app's console output into this process and keeps
+// up to 1 MB of it; past that, Node kills the cmd.exe wrapper and closes the pipe, and
+// from then on every console write the app makes fails with EPIPE (measured on
+// Windows: the app itself survives, its output stream does not). Nothing here ever
+// read that output, so it now goes nowhere instead.
+//
+// DO NOT "simplify" this to spawn(exePath, [args]) without the shell. On Windows,
+// Node puts every direct, non-detached child into a kill-on-close job object, so a
+// directly spawned emulator dies the moment the launcher closes (measured: killed at
+// the same millisecond). Going through cmd.exe is what lets BizHawk / SNI / the timer
+// outlive the launcher: cmd.exe is the job member, the app it starts is not.
+function launchApp(exePath, argString) {
+  const commandLine = argString ? `"${exePath}" ${argString}` : `"${exePath}"`;
+  try {
+    const child = spawn(commandLine, { cwd: path.dirname(exePath), shell: true, stdio: 'ignore' });
+    child.on('error', (err) => console.error(`Launch failed (${exePath}):`, err.message));
+    child.unref();
+  } catch (err) {
+    console.error(`Launch failed (${exePath}):`, err.message);
+  }
+}
+
+// ============================================================
 //  ROM Staging
 // ============================================================
 // Put the chosen ROM into the pack folder under the pack's MSU name and make it
@@ -1354,7 +1384,7 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch timer
       if (launchTimer && timerPath) {
-        exec(`"${timerPath}"`, { cwd: path.dirname(timerPath) });
+        launchApp(timerPath);
       }
 
       // Poll for the generated .sfc file (Archipelago creates it)
@@ -1384,7 +1414,7 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch SNI
       if (launchSni && sniPath) {
-        exec(`"${sniPath}"`, { cwd: path.dirname(sniPath) });
+        launchApp(sniPath);
       }
 
       // Start layout restore
@@ -1397,7 +1427,7 @@ ipcMain.handle('launch-rom', async (_e, {
           const luaPath = luaScriptPath || getLuaLauncherPath(null);
           args += ` --lua="${luaPath}"`;
         }
-        exec(`"${emulatorPath}" ${args}`, { cwd: path.dirname(emulatorPath) });
+        launchApp(emulatorPath, args);
       } else {
         shell.openPath(generatedSfc);
       }
@@ -1405,12 +1435,12 @@ ipcMain.handle('launch-rom', async (_e, {
       // === NORMAL SFC FLOW ===
       // Launch SNI
       if (launchSni && sniPath) {
-        exec(`"${sniPath}"`, { cwd: path.dirname(sniPath) });
+        launchApp(sniPath);
       }
 
       // Launch timer
       if (launchTimer && timerPath) {
-        exec(`"${timerPath}"`, { cwd: path.dirname(timerPath) });
+        launchApp(timerPath);
       }
 
       // Start layout restore polling BEFORE launching emulator
@@ -1425,7 +1455,7 @@ ipcMain.handle('launch-rom', async (_e, {
           const luaPath = luaScriptPath || getLuaLauncherPath(null);
           args += ` --lua="${luaPath}"`;
         }
-        exec(`"${emulatorPath}" ${args}`, { cwd: path.dirname(emulatorPath) });
+        launchApp(emulatorPath, args);
       } else {
         shell.openPath(destRom);
       }
