@@ -1,7 +1,7 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { exec, execSync } = require('child_process');
+const { exec, execSync, spawn } = require('child_process');
 
 // ============================================================
 //  SETTINGS
@@ -10,17 +10,74 @@ function getSettingsPath() {
   return path.join(app.getPath('userData'), 'po-launcher-settings.json');
 }
 
+// Settings live in memory and are flushed to disk a moment after the last change.
+//
+// Why: the tracker window saves its bounds on every 'move'/'resize' event and the
+// zoom on every step — dozens of times a second while dragging. Each of those used
+// to be a synchronous read + parse + rewrite of the whole file, and the rewrite was
+// not atomic. One interrupted write left a truncated file, loadSettings() then
+// returned {}, and the next save replaced every path, layout and tracker preset
+// with that empty object.
+//
+// Same API as before: loadSettings() returns the settings object, saveSettings(patch)
+// shallow-merges a patch into it.
+let settingsCache = null;
+let settingsWriteTimer = null;
+const SETTINGS_WRITE_DELAY_MS = 250;
+
+function readSettingsFile(file) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('settings file is not a JSON object');
+  }
+  return parsed;
+}
+
 function loadSettings() {
+  if (settingsCache) return settingsCache;
+  const file = getSettingsPath();
   try {
-    return JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-  } catch { return {}; }
+    settingsCache = readSettingsFile(file);
+  } catch (err) {
+    // Missing file = first run. Anything else = damaged file: keep a copy of it
+    // for inspection, then fall back to the last known-good backup.
+    if (err.code !== 'ENOENT') {
+      console.error('Settings file unreadable, trying backup:', err.message);
+      try { fs.copyFileSync(file, file + '.corrupt'); } catch {}
+    }
+    try { settingsCache = readSettingsFile(file + '.bak'); }
+    catch { settingsCache = {}; }
+  }
+  return settingsCache;
 }
 
 function saveSettings(settings) {
+  settingsCache = { ...loadSettings(), ...settings };
+  if (settingsWriteTimer) clearTimeout(settingsWriteTimer);
+  settingsWriteTimer = setTimeout(flushSettings, SETTINGS_WRITE_DELAY_MS);
+}
+
+// Write the cache to disk now. Temp file + rename, so the real file is always
+// either the old version or the new one — never half of one.
+function flushSettings() {
+  if (settingsWriteTimer) { clearTimeout(settingsWriteTimer); settingsWriteTimer = null; }
+  if (!settingsCache) return;
+  const file = getSettingsPath();
+  const tmp = file + '.tmp';
+  const data = JSON.stringify(settingsCache, null, 2);
   try {
-    const existing = loadSettings();
-    const merged = { ...existing, ...settings };
-    fs.writeFileSync(getSettingsPath(), JSON.stringify(merged, null, 2), 'utf-8');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(tmp, data, 'utf-8');
+    // Only a file that still parses is allowed to become the backup.
+    try { readSettingsFile(file); fs.copyFileSync(file, file + '.bak'); } catch {}
+    try {
+      fs.renameSync(tmp, file);
+    } catch {
+      // Rename can be refused if something (AV, indexer) has the file open.
+      // Fall back to the old direct write rather than lose the save.
+      fs.writeFileSync(file, data, 'utf-8');
+      try { fs.unlinkSync(tmp); } catch {}
+    }
   } catch (err) { console.error('Settings save error:', err); }
 }
 
@@ -714,14 +771,34 @@ class WinHelper {
   }
 }
 
-app.whenReady().then(() => {
-  const settings = loadSettings();
-  savedTrackerZoom = settings.zoom || null;
-  createMainWindow();
-  compileWindowHelper();
-});
+// One launcher at a time. Settings are now held in memory, so two instances would
+// each keep their own copy and overwrite each other's saves. A second launch just
+// brings the existing window forward.
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    const settings = loadSettings();
+    savedTrackerZoom = settings.zoom || null;
+    createMainWindow();
+    compileWindowHelper();
+  });
+}
 
 app.on('window-all-closed', () => app.quit());
+
+// Pending settings changes must reach disk before the process goes away.
+app.on('before-quit', flushSettings);
+app.on('will-quit', flushSettings);
 
 // ============================================================
 //  IPC — Window Controls
