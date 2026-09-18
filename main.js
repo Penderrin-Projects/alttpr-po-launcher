@@ -943,6 +943,18 @@ ipcMain.handle('set-aspect-ratio', (event, ratio) => {
   if (win) win.setAspectRatio(ratio);
 });
 
+// Debug dumps go where they always went (next to the exe, or the project folder in
+// dev) under the same names. They just can't take real work down with them any more:
+// a failed dump inside captureExternalWindows() used to turn a good capture into
+// "0 windows", and one inside save-layout rejected the IPC call after the layout
+// had in fact been saved.
+function writeDebugFile(name, content) {
+  try {
+    const base = app.isPackaged ? path.dirname(process.execPath) : __dirname;
+    fs.writeFileSync(path.join(base, name), content, 'utf-8');
+  } catch {}
+}
+
 // ============================================================
 //  LAYOUT — PowerShell Window Capture & Restore
 // ============================================================
@@ -972,7 +984,7 @@ function captureExternalWindows() {
         `"${winHelperExePath}" capture "${processNames.join(',')}"`,
         { windowsHide: true, encoding: 'utf-8', timeout: 5000 }
       ).trim();
-      fs.writeFileSync(path.join(debugBase, 'capture-raw.txt'), result, 'utf-8');
+      writeDebugFile('capture-raw.txt', result);
       if (!result || result === '[]') return [];
       const all = JSON.parse(result);
 
@@ -984,8 +996,8 @@ function captureExternalWindows() {
         return true;
       });
     } catch (err) {
-      fs.writeFileSync(path.join(debugBase, 'capture-error.txt'),
-        `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`, 'utf-8');
+      writeDebugFile('capture-error.txt',
+        `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`);
       return [];
     }
   }
@@ -1075,7 +1087,7 @@ function captureExternalWindowsPS(processNames, debugBase) {
       `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
       { windowsHide: true, encoding: 'utf-8', timeout: 10000 }
     ).trim();
-    fs.writeFileSync(path.join(debugBase, 'capture-raw.txt'), result, 'utf-8');
+    writeDebugFile('capture-raw.txt', result);
     if (!result || result === '[]') return [];
     const parsed = JSON.parse(result);
     const all = Array.isArray(parsed) ? parsed : [parsed];
@@ -1087,8 +1099,8 @@ function captureExternalWindowsPS(processNames, debugBase) {
       return true;
     });
   } catch (err) {
-    fs.writeFileSync(path.join(debugBase, 'capture-error.txt'),
-      `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`, 'utf-8');
+    writeDebugFile('capture-error.txt',
+      `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`);
     return [];
   }
 }
@@ -1119,11 +1131,7 @@ ipcMain.handle('save-layout', (_e, layoutType) => {
   saveSettings({ [key]: layout });
 
   // Write debug log
-  const debugPath = path.join(
-    app.isPackaged ? path.dirname(process.execPath) : __dirname,
-    'layout-debug.json'
-  );
-  fs.writeFileSync(debugPath, JSON.stringify({ layoutType, layout }, null, 2), 'utf-8');
+  writeDebugFile('layout-debug.json', JSON.stringify({ layoutType, layout }, null, 2));
 
   const count = (layout.mainWindow ? 1 : 0) + (layout.trackerWindow ? 1 : 0) + externalWindows.length;
   return { saved: true, windowCount: count };
@@ -1147,7 +1155,7 @@ function restoreLayout(layoutType) {
   // Poll for external windows and restore each as it appears
   if (layout.externalWindows && layout.externalWindows.length > 0) {
     const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-    fs.writeFileSync(path.join(debugBase, 'restore-debug.json'), JSON.stringify(layout.externalWindows, null, 2), 'utf-8');
+    writeDebugFile('restore-debug.json', JSON.stringify(layout.externalWindows, null, 2));
     pollAndRestoreExternalWindows(layout.externalWindows);
   }
 }
@@ -1251,7 +1259,7 @@ function pollAndRestoreExternalWindowsPS(targetWindows, debugBase) {
     fs.writeFileSync(tmpScript, script, { encoding: 'utf-8' });
     exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`, { windowsHide: true, timeout: 25000 });
   } catch (err) {
-    fs.writeFileSync(path.join(debugBase, 'restore-error.txt'), err.message, 'utf-8');
+    writeDebugFile('restore-error.txt', err.message);
   }
 }
 
