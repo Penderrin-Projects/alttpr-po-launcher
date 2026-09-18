@@ -1347,6 +1347,48 @@ function stageRom(romPath, pack) {
   return destRom;
 }
 
+// Wait for Archipelago to generate the .sfc in the pack folder.
+// Same signal as before (an .sfc appears; stageRom() guarantees none was there), same
+// 60s limit. The addition: the emulator is never handed a ROM that is still being
+// written. "Finished" means the size has stopped changing —
+//   - for 2 polls in a row if the file is shaped like a complete SNES ROM (a whole
+//     number of 32 KB banks, at least 512 KB, optionally + a 512-byte copier header);
+//   - for 4 polls in a row (1s) for anything else. An unusual ROM is only ever delayed,
+//     never refused, so this can't turn a working launch into a timeout.
+// Resolves with the full path, or null on timeout.
+function waitForGeneratedSfc(packDir, timeoutMs = 60000, pollMs = 250) {
+  const looksLikeWholeRom = (size) => {
+    const body = size % 0x8000 === 512 ? size - 512 : size;
+    return body >= 0x80000 && body % 0x8000 === 0;
+  };
+  return new Promise((resolve) => {
+    const started = Date.now();
+    let lastName = null;
+    let lastSize = -1;
+    let stablePolls = 0;
+    const interval = setInterval(() => {
+      try {
+        const sfc = fs.readdirSync(packDir).find(f => f.toLowerCase().endsWith('.sfc'));
+        if (sfc) {
+          const size = fs.statSync(path.join(packDir, sfc)).size;
+          stablePolls = (size > 0 && sfc === lastName && size === lastSize) ? stablePolls + 1 : 0;
+          lastName = sfc;
+          lastSize = size;
+          if (stablePolls >= (looksLikeWholeRom(size) ? 1 : 3)) {
+            clearInterval(interval);
+            resolve(path.join(packDir, sfc));
+            return;
+          }
+        }
+      } catch {}
+      if (Date.now() - started > timeoutMs) {
+        clearInterval(interval);
+        resolve(null);
+      }
+    }, pollMs);
+  });
+}
+
 // ============================================================
 //  IPC — Launch ROM
 // ============================================================
@@ -1387,26 +1429,8 @@ ipcMain.handle('launch-rom', async (_e, {
         launchApp(timerPath);
       }
 
-      // Poll for the generated .sfc file (Archipelago creates it)
-      const packDir = pack.path;
-      const generatedSfc = await new Promise((resolve) => {
-        let elapsed = 0;
-        const interval = setInterval(() => {
-          try {
-            const files = fs.readdirSync(packDir);
-            const sfc = files.find(f => f.toLowerCase().endsWith('.sfc'));
-            if (sfc) {
-              clearInterval(interval);
-              resolve(path.join(packDir, sfc));
-            }
-          } catch {}
-          elapsed += 500;
-          if (elapsed > 60000) { // 60 second timeout
-            clearInterval(interval);
-            resolve(null);
-          }
-        }, 500);
-      });
+      // Poll for the generated .sfc file (Archipelago creates it) — 60 second timeout
+      const generatedSfc = await waitForGeneratedSfc(pack.path);
 
       if (!generatedSfc) {
         return { success: false, error: 'Timeout waiting for Archipelago to generate .sfc' };
