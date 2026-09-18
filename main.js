@@ -1275,6 +1275,49 @@ function getLuaLauncherPath(realScriptPath) {
 }
 
 // ============================================================
+//  ROM Staging
+// ============================================================
+// Put the chosen ROM into the pack folder under the pack's MSU name and make it
+// the only ROM in there. Returns the staged path.
+//
+// The cleanup rule is unchanged — every .sfc/.aplttp in the pack folder is removed —
+// because the rest of the launcher relies on it: MSU-1 needs the ROM to carry the
+// pack's name, and the Archipelago flow treats "an .sfc appeared in this folder" as
+// the signal that generation finished, so a stale .sfc would be picked up instantly.
+//
+// What changed is the ORDER. It used to delete first and copy second, so launching a
+// ROM that already lived in the pack folder deleted the source before it was copied:
+// the copy failed with ENOENT and the ROM was gone. Now the copy happens first, under
+// a name the cleanup never matches, and is renamed into place at the end.
+function stageRom(romPath, pack) {
+  const romExt = path.extname(romPath).toLowerCase();
+  const destRom = path.join(pack.path, pack.msuBase + romExt);
+  const tmpRom = path.join(pack.path, `.po-staging-${process.pid}.tmp`);
+
+  // Sweep up after any earlier run that was interrupted mid-stage.
+  for (const f of fs.readdirSync(pack.path)) {
+    if (/^\.po-staging-\d+\.tmp$/.test(f)) {
+      try { fs.unlinkSync(path.join(pack.path, f)); } catch {}
+    }
+  }
+
+  fs.copyFileSync(romPath, tmpRom);
+  try {
+    for (const f of fs.readdirSync(pack.path)) {
+      const ext = path.extname(f).toLowerCase();
+      if (ext === '.sfc' || ext === '.aplttp') {
+        fs.unlinkSync(path.join(pack.path, f));
+      }
+    }
+    fs.renameSync(tmpRom, destRom);
+  } catch (err) {
+    try { fs.unlinkSync(tmpRom); } catch {}
+    throw err;
+  }
+  return destRom;
+}
+
+// ============================================================
 //  IPC — Launch ROM
 // ============================================================
 ipcMain.handle('launch-rom', async (_e, {
@@ -1287,20 +1330,14 @@ ipcMain.handle('launch-rom', async (_e, {
 }) => {
   try {
     const romExt = path.extname(romPath).toLowerCase();
-    const destRom = path.join(pack.path, pack.msuBase + romExt);
     const isArchipelago = romExt === '.aplttp';
 
-    // Clean old ROMs in destination
-    const existing = fs.readdirSync(pack.path);
-    for (const f of existing) {
-      const ext = path.extname(f).toLowerCase();
-      if (ext === '.sfc' || ext === '.aplttp') {
-        fs.unlinkSync(path.join(pack.path, f));
-      }
-    }
+    // Copy ROM into the pack folder (copy first, then clean old ROMs — see stageRom)
+    const destRom = stageRom(romPath, pack);
 
-    // Copy ROM
-    fs.copyFileSync(romPath, destRom);
+    // If the ROM was launched from inside the pack folder, its old name is gone now;
+    // the renderer needs the new path or the next Play would fail with "file not found".
+    const romMovedTo = fs.existsSync(romPath) ? null : destRom;
 
     // Open built-in tracker
     let trackerResult = 'skipped';
@@ -1394,7 +1431,7 @@ ipcMain.handle('launch-rom', async (_e, {
       }
     }
 
-    return { success: true, trackerResult };
+    return { success: true, trackerResult, romMovedTo };
   } catch (err) {
     return { success: false, error: err.message };
   }
