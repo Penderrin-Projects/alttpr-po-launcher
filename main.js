@@ -1304,6 +1304,28 @@ function launchApp(exePath, argString) {
   }
 }
 
+// Is this exe already running? Used for SNI and the timer only: a second SNI can't
+// bind its port, and a second timer is just a stray window the layout restore won't
+// place. The emulator is never checked — relaunching it is the user's call.
+// Any doubt (odd file name, tasklist unavailable) answers "no", i.e. launch as before.
+function isAppRunning(exePath) {
+  if (process.platform !== 'win32') return false;
+  const image = path.basename(exePath);
+  if (!/^[\w .()+\-\[\]]+$/.test(image)) return false;
+  try {
+    const out = execSync(`tasklist /FI "IMAGENAME eq ${image}" /FO CSV /NH`,
+      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
+    return out.toLowerCase().includes(`"${image.toLowerCase()}"`);
+  } catch { return false; }
+}
+
+// launchApp(), unless it's already up. Returns true if it was already running.
+function launchAppOnce(exePath) {
+  if (isAppRunning(exePath)) return true;
+  launchApp(exePath);
+  return false;
+}
+
 // ============================================================
 //  ROM Staging
 // ============================================================
@@ -1411,6 +1433,9 @@ ipcMain.handle('launch-rom', async (_e, {
     // the renderer needs the new path or the next Play would fail with "file not found".
     const romMovedTo = fs.existsSync(romPath) ? null : destRom;
 
+    // Companions we found already running and therefore did not start again
+    const alreadyRunning = [];
+
     // Open built-in tracker
     let trackerResult = 'skipped';
     if (launchTracker) {
@@ -1426,7 +1451,7 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch timer
       if (launchTimer && timerPath) {
-        launchApp(timerPath);
+        if (launchAppOnce(timerPath)) alreadyRunning.push('Timer');
       }
 
       // Poll for the generated .sfc file (Archipelago creates it) — 60 second timeout
@@ -1438,7 +1463,7 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch SNI
       if (launchSni && sniPath) {
-        launchApp(sniPath);
+        if (launchAppOnce(sniPath)) alreadyRunning.push('SNI');
       }
 
       // Start layout restore
@@ -1459,12 +1484,12 @@ ipcMain.handle('launch-rom', async (_e, {
       // === NORMAL SFC FLOW ===
       // Launch SNI
       if (launchSni && sniPath) {
-        launchApp(sniPath);
+        if (launchAppOnce(sniPath)) alreadyRunning.push('SNI');
       }
 
       // Launch timer
       if (launchTimer && timerPath) {
-        launchApp(timerPath);
+        if (launchAppOnce(timerPath)) alreadyRunning.push('Timer');
       }
 
       // Start layout restore polling BEFORE launching emulator
@@ -1485,7 +1510,7 @@ ipcMain.handle('launch-rom', async (_e, {
       }
     }
 
-    return { success: true, trackerResult, romMovedTo };
+    return { success: true, trackerResult, romMovedTo, alreadyRunning };
   } catch (err) {
     return { success: false, error: err.message };
   }

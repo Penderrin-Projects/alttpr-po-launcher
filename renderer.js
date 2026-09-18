@@ -524,7 +524,10 @@ playBtn.addEventListener('click', async () => {
   if (result.success) {
     // ROM was launched from inside the pack folder and now carries the pack's name
     if (result.romMovedTo) romPath = result.romMovedTo;
-    const msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    let msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    if (result.alreadyRunning && result.alreadyRunning.length > 0) {
+      msg += ` (${result.alreadyRunning.join(' & ')} already running)`;
+    }
     setStatus(msg, 'success');
     playBtn.textContent = '✓ Launched';
     setTimeout(() => {
