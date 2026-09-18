@@ -90,6 +90,35 @@ let settingsWindow = null;
 let trackerContentDims = null;
 let savedTrackerZoom = null;
 
+// True if enough of the rectangle is on a connected display to grab and drag it.
+function boundsAreVisible(b) {
+  if (!b || ![b.x, b.y, b.width, b.height].every(Number.isFinite)) return false;
+  return screen.getAllDisplays().some(d => {
+    const a = d.workArea;
+    const overlapW = Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x);
+    const overlapH = Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y);
+    return overlapW >= 100 && overlapH >= 50;
+  });
+}
+
+// Saved tracker bounds, made safe to hand to a BrowserWindow.
+// Position is dropped (size kept) when it points at a monitor that is no longer
+// there, so the tracker can't open somewhere it can't be seen.
+function getSafeTrackerBounds(saved) {
+  if (!saved || !Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return null;
+  if (boundsAreVisible(saved)) return saved;
+  return { width: saved.width, height: saved.height, x: undefined, y: undefined };
+}
+
+// Shared by both ways a tracker window gets created.
+// A minimized window reports x/y of -32000 on Windows; saving that made the
+// tracker reopen off-screen, so minimized state is never recorded.
+function saveTrackerBounds() {
+  if (!trackerWindow || trackerWindow.isDestroyed()) return;
+  if (trackerWindow.isMinimized()) return;
+  saveSettings({ trackerBounds: trackerWindow.getBounds() });
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 560,
@@ -126,7 +155,7 @@ function openTrackerWindow() {
     return 'needs-setup';
   }
 
-  const bounds = settings.trackerBounds || null;
+  const bounds = getSafeTrackerBounds(settings.trackerBounds);
   const parsedDims = parseTrackerDims(query);
 
   trackerWindow = new BrowserWindow({
@@ -154,13 +183,8 @@ function openTrackerWindow() {
   const trackerUrl = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${query}&r=${Date.now()}`;
   trackerWindow.loadURL(trackerUrl);
 
-  const saveBounds = () => {
-    if (trackerWindow && !trackerWindow.isDestroyed()) {
-      saveSettings({ trackerBounds: trackerWindow.getBounds() });
-    }
-  };
-  trackerWindow.on('resize', saveBounds);
-  trackerWindow.on('move', saveBounds);
+  trackerWindow.on('resize', saveTrackerBounds);
+  trackerWindow.on('move', saveTrackerBounds);
   trackerWindow.on('closed', () => { trackerWindow = null; });
 
   // Apply saved theme once page loads
@@ -271,8 +295,7 @@ function openSettingsWindow() {
     }
     trackerContentDims = { width, height };
 
-    const saved = loadSettings();
-    const b = saved.trackerBounds;
+    const b = getSafeTrackerBounds(loadSettings().trackerBounds);
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -303,13 +326,8 @@ function openSettingsWindow() {
       const theme = loadSettings().theme || 'blue';
       win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
     });
-    const saveBounds = () => {
-      if (trackerWindow && !trackerWindow.isDestroyed()) {
-        saveSettings({ trackerBounds: trackerWindow.getBounds() });
-      }
-    };
-    win.on('resize', saveBounds);
-    win.on('move', saveBounds);
+    win.on('resize', saveTrackerBounds);
+    win.on('move', saveTrackerBounds);
     win.on('closed', () => { trackerWindow = null; });
   };
   app.on('browser-window-created', onChildCreated);
@@ -1118,10 +1136,11 @@ function restoreLayout(layoutType) {
   if (!layout) return;
 
   // Restore Electron windows immediately
-  if (layout.mainWindow && mainWindow && !mainWindow.isDestroyed()) {
+  // (skipped when the saved spot is on a monitor that isn't connected right now)
+  if (layout.mainWindow && mainWindow && !mainWindow.isDestroyed() && boundsAreVisible(layout.mainWindow)) {
     mainWindow.setBounds(layout.mainWindow);
   }
-  if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed()) {
+  if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed() && boundsAreVisible(layout.trackerWindow)) {
     trackerWindow.setBounds(layout.trackerWindow);
   }
 
