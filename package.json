@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64"
+    "build:helper": "node scripts/build-helper.js",
+    "build": "node scripts/build-helper.js && electron-builder --win --x64"
   },
   "build": {
     "appId": "com.alttpr.po-launcher",
@@ -22,6 +23,7 @@
       "styles.css",
       "icon.ico",
       "icon.png",
+      "native/WinHelper.cs",
       "tracker/**/*"
     ],
     "win": {
@@ -30,7 +32,16 @@
     },
     "portable": {
       "artifactName": "ALTTPR-PO-Launcher.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "native/bin",
+        "to": ".",
+        "filter": [
+          "WinHelper.exe"
+        ]
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^44.4.3",

@@ -3,3 +3,6 @@ dist/
 *.log
 msu-launcher-settings.json
 open_console.lua
+
+# prebuilt helper (produced by scripts/build-helper.js)
+native/bin/
