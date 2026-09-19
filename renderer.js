@@ -1,5 +1,13 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
+// The page no longer has Node.js. These two shims keep every call site below unchanged:
+// they forward to the narrow API exposed by launcher-preload.js.
+const ipcRenderer = {
+  invoke: (channel, ...args) => window.launcher.invoke(channel, ...args),
+  on: (channel, callback) => { if (channel === 'tracker-configured') window.launcher.onTrackerConfigured(callback); },
+};
+const path = {
+  // same result as Node's path.extname() for a bare file name
+  extname: (name) => { const i = name.lastIndexOf('.'); return i > 0 ? name.slice(i) : ''; },
+};
 
 // --- Theme Definitions (shared with tracker po-themes.js) ---
 const poThemes = {
@@ -459,7 +467,7 @@ dropZone.addEventListener('drop', (e) => {
   if (files.length > 0) {
     const file = files[0];
     const ext = path.extname(file.name).toLowerCase();
-    const filePath = file.path || '';
+    const filePath = window.launcher.getPathForFile(file);   // File.path was removed in Electron 32
     if ((ext === '.sfc' || ext === '.aplttp') && filePath) {
       setRomLoaded(filePath, file.name);
     } else {

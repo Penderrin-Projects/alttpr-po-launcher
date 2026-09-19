@@ -119,6 +119,12 @@ function saveTrackerBounds() {
   saveSettings({ trackerBounds: trackerWindow.getBounds() });
 }
 
+// Theme names end up inside a string passed to executeJavaScript(), so only a plain
+// identifier is ever allowed through. Anything else falls back to the default theme.
+function safeThemeName(name) {
+  return (typeof name === 'string' && /^[a-z0-9_-]{1,32}$/i.test(name)) ? name : 'blue';
+}
+
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 560,
@@ -131,8 +137,9 @@ function createMainWindow() {
     backgroundColor: '#0b1120',
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'launcher-preload.js'),
     },
   });
   mainWindow.loadFile('renderer.html');
@@ -173,7 +180,6 @@ function openTrackerWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false,
     },
   });
 
@@ -190,7 +196,7 @@ function openTrackerWindow() {
   // Apply saved theme once page loads
   trackerWindow.webContents.on('did-finish-load', () => {
     const theme = loadSettings().theme || 'blue';
-    trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+    trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
   return 'open';
@@ -246,7 +252,6 @@ function openSettingsWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false,
     },
     backgroundColor: '#0d1117',
   });
@@ -267,7 +272,7 @@ function openSettingsWindow() {
     settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
     // Apply saved theme
     const theme = loadSettings().theme || 'blue';
-    settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+    settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
   settingsWindow.webContents.setWindowOpenHandler(({ url, features }) => {
@@ -311,7 +316,6 @@ function openSettingsWindow() {
           nodeIntegration: false,
           contextIsolation: true,
           preload: path.join(__dirname, 'preload.js'),
-          webSecurity: false,
         },
       },
     };
@@ -324,7 +328,7 @@ function openSettingsWindow() {
     // Apply saved theme to popup tracker windows
     win.webContents.on('did-finish-load', () => {
       const theme = loadSettings().theme || 'blue';
-      win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+      win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
     });
     win.on('resize', saveTrackerBounds);
     win.on('move', saveTrackerBounds);
@@ -907,6 +911,7 @@ ipcMain.handle('has-tracker-config', () => !!loadSettings().lastTrackerQuery);
 
 // Theme propagation to all open tracker/settings windows
 ipcMain.handle('set-theme', (event, themeName) => {
+  themeName = safeThemeName(themeName);
   const js = `if(typeof applyPoTheme==='function'){applyPoTheme('${themeName}')}`;
   if (trackerWindow && !trackerWindow.isDestroyed()) {
     trackerWindow.webContents.executeJavaScript(js).catch(() => {});
