@@ -1,0 +1,75 @@
+name: Build & draft release
+
+# - every pull request to main: build the Windows exe and attach it to the run as an artifact
+# - pushing a tag like v2.1.0: build, then create a DRAFT release with the exe attached.
+#   Publishing the draft by hand is what fires the Discord notification (a release published
+#   by a workflow's own token does not trigger other workflows).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tag must match package.json version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          PKG="v$(node -p "require('./package.json').version")"
+          if [ "$PKG" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $PKG"
+            exit 1
+          fi
+
+      # compiles native/WinHelper.cs with the runner's .NET Framework csc, then packages
+      - run: npm run build
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Packaged app must contain the prebuilt helper and the launcher preload
+        shell: bash
+        run: |
+          test -f "dist/win-unpacked/resources/WinHelper.exe" || { echo "::error::WinHelper.exe missing from resources"; exit 1; }
+          npx --yes @electron/asar list dist/win-unpacked/resources/app.asar > asar.txt
+          for f in /main.js /preload.js /launcher-preload.js /renderer.html /renderer.js /styles.css /native/WinHelper.cs /tracker/tracker.html; do
+            grep -qxF "$f" asar.txt || grep -qxF "${f//\//\\}" asar.txt || { echo "::error::$f missing from app.asar"; exit 1; }
+          done
+          ls -l dist/*.exe
+
+      - name: Self-test the packaged app (boots it for real; see runSelfTest in main.js)
+        shell: pwsh
+        run: |
+          $env:PO_LAUNCHER_SELFTEST = "$PWD\selftest.json"
+          $p = Start-Process -FilePath "dist\win-unpacked\ALTTPR PO Launcher.exe" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "self-test timed out" }
+          if (Test-Path selftest.json) { Get-Content selftest.json } else { throw "self-test wrote no report" }
+          if ($p.ExitCode -ne 0) { throw "self-test failed (exit $($p.ExitCode))" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ALTTPR-PO-Launcher
+          path: dist/ALTTPR-PO-Launcher.exe
+          if-no-files-found: error
+
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/ALTTPR-PO-Launcher.exe --draft --generate-notes --title "ALTTPR PO Launcher $GITHUB_REF_NAME"
