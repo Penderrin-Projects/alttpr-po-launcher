@@ -1,11 +1,12 @@
 {
   "name": "alttpr-po-launcher",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "ALTTPR PO Launcher - Launcher, Tracker & Music Pack Manager",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64"
+    "build:helper": "node scripts/build-helper.js",
+    "build": "node scripts/build-helper.js && electron-builder --win --x64 --publish never"
   },
   "build": {
     "appId": "com.alttpr.po-launcher",
@@ -16,11 +17,13 @@
     "files": [
       "main.js",
       "preload.js",
+      "launcher-preload.js",
       "renderer.html",
       "renderer.js",
       "styles.css",
       "icon.ico",
       "icon.png",
+      "native/WinHelper.cs",
       "tracker/**/*"
     ],
     "win": {
@@ -29,10 +32,26 @@
     },
     "portable": {
       "artifactName": "ALTTPR-PO-Launcher.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "native/bin",
+        "to": ".",
+        "filter": [
+          "WinHelper.exe"
+        ]
+      }
+    ],
+    "publish": null
   },
   "devDependencies": {
-    "electron": "^28.0.0",
-    "electron-builder": "^24.0.0"
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3"
+  },
+  "author": "Pennderin",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Penderrin-Projects/alttpr-po-launcher.git"
   }
 }

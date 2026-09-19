@@ -1,5 +1,13 @@
-const { ipcRenderer } = require('electron');
-const path = require('path');
+// The page no longer has Node.js. These two shims keep every call site below unchanged:
+// they forward to the narrow API exposed by launcher-preload.js.
+const ipcRenderer = {
+  invoke: (channel, ...args) => window.launcher.invoke(channel, ...args),
+  on: (channel, callback) => { if (channel === 'tracker-configured') window.launcher.onTrackerConfigured(callback); },
+};
+const path = {
+  // same result as Node's path.extname() for a bare file name
+  extname: (name) => { const i = name.lastIndexOf('.'); return i > 0 ? name.slice(i) : ''; },
+};
 
 // --- Theme Definitions (shared with tracker po-themes.js) ---
 const poThemes = {
@@ -459,7 +467,7 @@ dropZone.addEventListener('drop', (e) => {
   if (files.length > 0) {
     const file = files[0];
     const ext = path.extname(file.name).toLowerCase();
-    const filePath = file.path || '';
+    const filePath = window.launcher.getPathForFile(file);   // File.path was removed in Electron 32
     if ((ext === '.sfc' || ext === '.aplttp') && filePath) {
       setRomLoaded(filePath, file.name);
     } else {
@@ -522,7 +530,13 @@ playBtn.addEventListener('click', async () => {
   });
 
   if (result.success) {
-    const msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    // ROM was launched from inside the pack folder and now carries the pack's name
+    if (result.romMovedTo) romPath = result.romMovedTo;
+    let msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    if (result.apRomStartOn) msg += ' (Archipelago rom_start is ON — see AP fix in settings)';
+    if (result.alreadyRunning && result.alreadyRunning.length > 0) {
+      msg += ` (${result.alreadyRunning.join(' & ')} already running)`;
+    }
     setStatus(msg, 'success');
     playBtn.textContent = '✓ Launched';
     setTimeout(() => {
@@ -535,6 +549,33 @@ playBtn.addEventListener('click', async () => {
     updatePlayState();
   }
 });
+
+// --- Archipelago rom_start (host.yaml) ---
+const apRow = document.getElementById('ap-romstart-row');
+const apChk = document.getElementById('chk-ap-romstart');
+const apStatus = document.getElementById('ap-romstart-status');
+function showApRomStart(state) {
+  if (!state || !state.found) { apRow.style.display = 'none'; return; }
+  apRow.style.display = '';
+  apChk.checked = !state.on;                       // checked = fixed = only the launcher starts the ROM
+  apStatus.className = 'companion-path ' + (state.on ? 'warn' : 'good');
+  apStatus.textContent = state.on ? 'Archipelago also starts the ROM — emulator opens twice' : 'Only the launcher starts the ROM';
+}
+apChk.addEventListener('change', async () => {
+  const state = await ipcRenderer.invoke('ap-romstart-set', !apChk.checked);
+  if (state && state.ok === false) setStatus(`Could not update host.yaml: ${state.error}`, 'error');
+  showApRomStart(state);
+});
+ipcRenderer.invoke('ap-romstart-get').then(showApRomStart).catch(() => {});
+
+// --- Update notice ---
+ipcRenderer.invoke('check-for-update').then((update) => {
+  if (!update) return;
+  document.getElementById('update-text').textContent = `Version ${update.version} is available (you have ${update.current})`;
+  document.getElementById('update-banner').style.display = '';
+}).catch(() => {});
+document.getElementById('btn-update-open').addEventListener('click', () => ipcRenderer.invoke('open-release-page'));
+document.getElementById('btn-update-dismiss').addEventListener('click', () => { document.getElementById('update-banner').style.display = 'none'; });
 
 // --- Prevent default drag on window ---
 document.addEventListener('dragover', (e) => e.preventDefault());

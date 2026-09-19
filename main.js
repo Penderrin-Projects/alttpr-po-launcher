@@ -1,7 +1,7 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { exec, execSync } = require('child_process');
+const { exec, execSync, spawn } = require('child_process');
 
 // ============================================================
 //  SETTINGS
@@ -10,17 +10,74 @@ function getSettingsPath() {
   return path.join(app.getPath('userData'), 'po-launcher-settings.json');
 }
 
+// Settings live in memory and are flushed to disk a moment after the last change.
+//
+// Why: the tracker window saves its bounds on every 'move'/'resize' event and the
+// zoom on every step — dozens of times a second while dragging. Each of those used
+// to be a synchronous read + parse + rewrite of the whole file, and the rewrite was
+// not atomic. One interrupted write left a truncated file, loadSettings() then
+// returned {}, and the next save replaced every path, layout and tracker preset
+// with that empty object.
+//
+// Same API as before: loadSettings() returns the settings object, saveSettings(patch)
+// shallow-merges a patch into it.
+let settingsCache = null;
+let settingsWriteTimer = null;
+const SETTINGS_WRITE_DELAY_MS = 250;
+
+function readSettingsFile(file) {
+  const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('settings file is not a JSON object');
+  }
+  return parsed;
+}
+
 function loadSettings() {
+  if (settingsCache) return settingsCache;
+  const file = getSettingsPath();
   try {
-    return JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-  } catch { return {}; }
+    settingsCache = readSettingsFile(file);
+  } catch (err) {
+    // Missing file = first run. Anything else = damaged file: keep a copy of it
+    // for inspection, then fall back to the last known-good backup.
+    if (err.code !== 'ENOENT') {
+      console.error('Settings file unreadable, trying backup:', err.message);
+      try { fs.copyFileSync(file, file + '.corrupt'); } catch {}
+    }
+    try { settingsCache = readSettingsFile(file + '.bak'); }
+    catch { settingsCache = {}; }
+  }
+  return settingsCache;
 }
 
 function saveSettings(settings) {
+  settingsCache = { ...loadSettings(), ...settings };
+  if (settingsWriteTimer) clearTimeout(settingsWriteTimer);
+  settingsWriteTimer = setTimeout(flushSettings, SETTINGS_WRITE_DELAY_MS);
+}
+
+// Write the cache to disk now. Temp file + rename, so the real file is always
+// either the old version or the new one — never half of one.
+function flushSettings() {
+  if (settingsWriteTimer) { clearTimeout(settingsWriteTimer); settingsWriteTimer = null; }
+  if (!settingsCache) return;
+  const file = getSettingsPath();
+  const tmp = file + '.tmp';
+  const data = JSON.stringify(settingsCache, null, 2);
   try {
-    const existing = loadSettings();
-    const merged = { ...existing, ...settings };
-    fs.writeFileSync(getSettingsPath(), JSON.stringify(merged, null, 2), 'utf-8');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(tmp, data, 'utf-8');
+    // Only a file that still parses is allowed to become the backup.
+    try { readSettingsFile(file); fs.copyFileSync(file, file + '.bak'); } catch {}
+    try {
+      fs.renameSync(tmp, file);
+    } catch {
+      // Rename can be refused if something (AV, indexer) has the file open.
+      // Fall back to the old direct write rather than lose the save.
+      fs.writeFileSync(file, data, 'utf-8');
+      try { fs.unlinkSync(tmp); } catch {}
+    }
   } catch (err) { console.error('Settings save error:', err); }
 }
 
@@ -32,6 +89,41 @@ let trackerWindow = null;
 let settingsWindow = null;
 let trackerContentDims = null;
 let savedTrackerZoom = null;
+
+// True if enough of the rectangle is on a connected display to grab and drag it.
+function boundsAreVisible(b) {
+  if (!b || ![b.x, b.y, b.width, b.height].every(Number.isFinite)) return false;
+  return screen.getAllDisplays().some(d => {
+    const a = d.workArea;
+    const overlapW = Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x);
+    const overlapH = Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y);
+    return overlapW >= 100 && overlapH >= 50;
+  });
+}
+
+// Saved tracker bounds, made safe to hand to a BrowserWindow.
+// Position is dropped (size kept) when it points at a monitor that is no longer
+// there, so the tracker can't open somewhere it can't be seen.
+function getSafeTrackerBounds(saved) {
+  if (!saved || !Number.isFinite(saved.width) || !Number.isFinite(saved.height)) return null;
+  if (boundsAreVisible(saved)) return saved;
+  return { width: saved.width, height: saved.height, x: undefined, y: undefined };
+}
+
+// Shared by both ways a tracker window gets created.
+// A minimized window reports x/y of -32000 on Windows; saving that made the
+// tracker reopen off-screen, so minimized state is never recorded.
+function saveTrackerBounds() {
+  if (!trackerWindow || trackerWindow.isDestroyed()) return;
+  if (trackerWindow.isMinimized()) return;
+  saveSettings({ trackerBounds: trackerWindow.getBounds() });
+}
+
+// Theme names end up inside a string passed to executeJavaScript(), so only a plain
+// identifier is ever allowed through. Anything else falls back to the default theme.
+function safeThemeName(name) {
+  return (typeof name === 'string' && /^[a-z0-9_-]{1,32}$/i.test(name)) ? name : 'blue';
+}
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -45,8 +137,9 @@ function createMainWindow() {
     backgroundColor: '#0b1120',
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'launcher-preload.js'),
     },
   });
   mainWindow.loadFile('renderer.html');
@@ -69,7 +162,7 @@ function openTrackerWindow() {
     return 'needs-setup';
   }
 
-  const bounds = settings.trackerBounds || null;
+  const bounds = getSafeTrackerBounds(settings.trackerBounds);
   const parsedDims = parseTrackerDims(query);
 
   trackerWindow = new BrowserWindow({
@@ -87,7 +180,6 @@ function openTrackerWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false,
     },
   });
 
@@ -97,19 +189,14 @@ function openTrackerWindow() {
   const trackerUrl = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${query}&r=${Date.now()}`;
   trackerWindow.loadURL(trackerUrl);
 
-  const saveBounds = () => {
-    if (trackerWindow && !trackerWindow.isDestroyed()) {
-      saveSettings({ trackerBounds: trackerWindow.getBounds() });
-    }
-  };
-  trackerWindow.on('resize', saveBounds);
-  trackerWindow.on('move', saveBounds);
+  trackerWindow.on('resize', saveTrackerBounds);
+  trackerWindow.on('move', saveTrackerBounds);
   trackerWindow.on('closed', () => { trackerWindow = null; });
 
   // Apply saved theme once page loads
   trackerWindow.webContents.on('did-finish-load', () => {
     const theme = loadSettings().theme || 'blue';
-    trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+    trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
   return 'open';
@@ -165,7 +252,6 @@ function openSettingsWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false,
     },
     backgroundColor: '#0d1117',
   });
@@ -186,7 +272,7 @@ function openSettingsWindow() {
     settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
     // Apply saved theme
     const theme = loadSettings().theme || 'blue';
-    settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+    settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
   settingsWindow.webContents.setWindowOpenHandler(({ url, features }) => {
@@ -214,8 +300,7 @@ function openSettingsWindow() {
     }
     trackerContentDims = { width, height };
 
-    const saved = loadSettings();
-    const b = saved.trackerBounds;
+    const b = getSafeTrackerBounds(loadSettings().trackerBounds);
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -231,7 +316,6 @@ function openSettingsWindow() {
           nodeIntegration: false,
           contextIsolation: true,
           preload: path.join(__dirname, 'preload.js'),
-          webSecurity: false,
         },
       },
     };
@@ -244,15 +328,10 @@ function openSettingsWindow() {
     // Apply saved theme to popup tracker windows
     win.webContents.on('did-finish-load', () => {
       const theme = loadSettings().theme || 'blue';
-      win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${theme}')}`).catch(() => {});
+      win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
     });
-    const saveBounds = () => {
-      if (trackerWindow && !trackerWindow.isDestroyed()) {
-        saveSettings({ trackerBounds: trackerWindow.getBounds() });
-      }
-    };
-    win.on('resize', saveBounds);
-    win.on('move', saveBounds);
+    win.on('resize', saveTrackerBounds);
+    win.on('move', saveTrackerBounds);
     win.on('closed', () => { trackerWindow = null; });
   };
   app.on('browser-window-created', onChildCreated);
@@ -267,16 +346,26 @@ function openSettingsWindow() {
 //  APP LIFECYCLE
 // ============================================================
 
-// Compile a native .exe helper for window capture/restore.
-// Starts in ~100ms vs PowerShell's ~3s. Compiled once, cached in temp.
+// WinHelper.exe does the window capture/restore work. Its source is native/WinHelper.cs.
+//
+// Release builds ship it prebuilt (scripts/build-helper.js, run by `npm run build` and by
+// CI), so nothing is compiled on a user's machine and no fresh exe is dropped into %TEMP% —
+// a pattern antivirus heuristics dislike. A dev checkout without a prebuilt copy falls back
+// to compiling it once into temp, exactly as every version up to 2.0 did.
 let winHelperExePath = null;
 
 function compileWindowHelper() {
+  const prebuilt = [
+    path.join(process.resourcesPath || '', 'WinHelper.exe'),    // packaged app (extraResources)
+    path.join(__dirname, 'native', 'bin', 'WinHelper.exe'),     // dev, after `npm run build:helper`
+  ].find(p => fs.existsSync(p));
+  if (prebuilt) { winHelperExePath = prebuilt; return; }
+
   const helperDir = path.join(app.getPath('temp'), 'po-launcher');
   if (!fs.existsSync(helperDir)) fs.mkdirSync(helperDir, { recursive: true });
   winHelperExePath = path.join(helperDir, 'WinHelper.exe');
 
-  const HELPER_VERSION = '22';
+  const HELPER_VERSION = '23';
   const versionFile = path.join(helperDir, 'version.txt');
 
   // Reuse if already compiled at current version
@@ -288,409 +377,14 @@ function compileWindowHelper() {
   }
 
   const csPath = path.join(helperDir, 'WinHelper.cs');
-  fs.writeFileSync(csPath, `
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
+  try {
+    fs.copyFileSync(path.join(__dirname, 'native', 'WinHelper.cs'), csPath);
+  } catch (err) {
+    console.error('WinHelper source missing:', err.message);
+    winHelperExePath = null;
+    return;
+  }
 
-class WinHelper {
-    delegate bool EnumWinProc(IntPtr h, IntPtr l);
-    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWinProc cb, IntPtr l);
-    [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
-    [DllImport("user32.dll", CharSet=CharSet.Auto)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
-    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-    [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool r);
-    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
-    [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
-    [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT wp);
-
-    [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
-    [StructLayout(LayoutKind.Sequential)] struct RECT { public int L, T, R, B; }
-    [StructLayout(LayoutKind.Sequential)] struct WINDOWPLACEMENT {
-        public int length, flags, showCmd;
-        public POINT minPos, maxPos;
-        public RECT normalPos;
-    }
-
-    struct WinInfo { public string process; public string title; public int x, y, w, h; public bool minimized; }
-
-    static List<IntPtr> GetAllHandles() {
-        var list = new List<IntPtr>();
-        EnumWindows((h, l) => { if (GetWindowTextLength(h) > 0) list.Add(h); return true; }, IntPtr.Zero);
-        return list;
-    }
-
-    static Dictionary<int, string> GetTargetPids(string[] names) {
-        var map = new Dictionary<int, string>();
-        foreach (var name in names) {
-            try {
-                foreach (var p in Process.GetProcessesByName(name))
-                    if (!map.ContainsKey(p.Id)) map[p.Id] = p.ProcessName;
-            } catch {}
-        }
-        return map;
-    }
-
-    static string GetTitle(IntPtr h) {
-        var sb = new StringBuilder(256);
-        GetWindowText(h, sb, 256);
-        return sb.ToString();
-    }
-
-    [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-    // MODE: capture — enumerate windows, output JSON
-    static void Capture(string[] processNames) {
-        var pids = GetTargetPids(processNames);
-        var handles = GetAllHandles();
-        var sb = new StringBuilder("[");
-        bool first = true;
-        foreach (var h in handles) {
-            uint wpid; GetWindowThreadProcessId(h, out wpid);
-            string pname;
-            if (!pids.TryGetValue((int)wpid, out pname)) continue;
-            var title = GetTitle(h);
-            if (string.IsNullOrEmpty(title)) continue;
-            var iconic = IsIconic(h);
-
-            int x, y, w, ht;
-            if (iconic) {
-                // For minimized windows, use GetWindowPlacement to get the restore position
-                var wp = new WINDOWPLACEMENT(); wp.length = Marshal.SizeOf(wp);
-                GetWindowPlacement(h, ref wp);
-                var r = wp.normalPos;
-                x = r.L; y = r.T; w = r.R - r.L; ht = r.B - r.T;
-            } else {
-                // For visible windows, use GetWindowRect for actual screen position
-                RECT r;
-                GetWindowRect(h, out r);
-                x = r.L; y = r.T; w = r.R - r.L; ht = r.B - r.T;
-            }
-
-            if (!first) sb.Append(","); first = false;
-            sb.AppendFormat("{{\\"process\\":\\"{0}\\",\\"title\\":\\"{1}\\",\\"x\\":{2},\\"y\\":{3},\\"width\\":{4},\\"height\\":{5},\\"minimized\\":{6}}}",
-                Esc(pname), Esc(title), x, y, w, ht, iconic ? "true" : "false");
-        }
-        sb.Append("]");
-        Console.Write(sb.ToString());
-    }
-
-    // MODE: restore — poll for windows and restore them from JSON config
-    // Two-pass matching: first exact title, then process-only for remaining
-    static void Restore(string configPath) {
-        var json = File.ReadAllText(configPath);
-        var targets = ParseTargets(json);
-        var restored = new bool[targets.Count];
-        int restoredCount = 0;
-        // Track which handles we've already matched so we don't double-match
-        var matchedHandles = new HashSet<IntPtr>();
-        var start = DateTime.Now;
-        while (restoredCount < targets.Count && (DateTime.Now - start).TotalSeconds < 20) {
-            var handles = GetAllHandles();
-            var pids = GetTargetPids(GetAllProcessNames(targets));
-
-            // Pass 1: exact title match (use substring for long titles)
-            for (int i = 0; i < targets.Count; i++) {
-                if (restored[i]) continue;
-                var t = targets[i];
-                // For BizHawk main window, match on "- BizHawk" suffix since ROM name changes
-                // For Lua Console, match exactly
-                string matchStr;
-                if (t.title.Contains("- BizHawk") && !t.title.Contains("Lua Console")) {
-                    matchStr = "- BizHawk";
-                } else {
-                    matchStr = t.title.Length > 30 ? t.title.Substring(0, 30) : t.title;
-                }
-                foreach (var h in handles) {
-                    if (matchedHandles.Contains(h)) continue;
-                    uint wpid; GetWindowThreadProcessId(h, out wpid);
-                    string pname;
-                    if (!pids.TryGetValue((int)wpid, out pname)) continue;
-                    if (pname != t.process) continue;
-                    var title = GetTitle(h);
-                    if (title.IndexOf(matchStr) >= 0) {
-                        // Extra check: if we're matching "- BizHawk" (main window), 
-                        // exclude Lua Console which is also under EmuHawk process
-                        if (matchStr == "- BizHawk" && title.Contains("Lua Console")) continue;
-                        ApplyRestore(h, t);
-                        restored[i] = true;
-                        matchedHandles.Add(h);
-                        restoredCount++;
-                        break;
-                    }
-                }
-            }
-
-            // Pass 2: for still-unrestored targets, match any unmatched window
-            // from the same process (catches Lua Console before title is set)
-            for (int i = 0; i < targets.Count; i++) {
-                if (restored[i]) continue;
-                var t = targets[i];
-                foreach (var h in handles) {
-                    if (matchedHandles.Contains(h)) continue;
-                    uint wpid; GetWindowThreadProcessId(h, out wpid);
-                    string pname;
-                    if (!pids.TryGetValue((int)wpid, out pname)) continue;
-                    if (pname != t.process) continue;
-                    var title = GetTitle(h);
-                    // Must have a title and not be a junk window
-                    if (string.IsNullOrEmpty(title)) continue;
-                    if (title.Contains("Default IME") || title.Contains("MSCTFIME") ||
-                        title.Contains("GDI+ Window") || title.Contains("NVOGLDC") ||
-                        title.Contains("__wglDummy") || title.Contains(".NET-Broadcast")) continue;
-                    // Skip tiny windows
-                    var wp2 = new WINDOWPLACEMENT(); wp2.length = Marshal.SizeOf(wp2);
-                    GetWindowPlacement(h, ref wp2);
-                    var r2 = wp2.normalPos;
-                    if ((r2.R - r2.L) < 50 && (r2.B - r2.T) < 50 && !IsIconic(h)) continue;
-
-                    ApplyRestore(h, t);
-                    restored[i] = true;
-                    matchedHandles.Add(h);
-                    restoredCount++;
-                    break;
-                }
-            }
-
-            if (restoredCount < targets.Count) {
-                // Poll faster if remaining windows need to be minimized (hide ASAP)
-                bool anyMinimized = false;
-                for (int i = 0; i < targets.Count; i++)
-                    if (!restored[i] && targets[i].minimized) { anyMinimized = true; break; }
-                Thread.Sleep(anyMinimized ? 50 : 200);
-            }
-        }
-    }
-
-    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndAfter, int x, int y, int cx, int cy, uint flags);
-
-    static void ApplyRestore(IntPtr h, WinInfo t) {
-        if (t.process == "EmuHawk") {
-            // BizHawk manages its own window positions.
-            // For minimized windows (Lua Console), wait for form init to complete
-            // by polling until the window title stabilizes (no longer placeholder),
-            // then minimize before the Lua script starts blocking.
-            if (t.minimized) {
-                var initStart = DateTime.Now;
-                while ((DateTime.Now - initStart).TotalSeconds < 5) {
-                    var title = GetTitle(h);
-                    // Title changes from placeholder to "Lua Console" when OnLoad completes
-                    if (title.Contains("Lua Console")) break;
-                    Thread.Sleep(50);
-                }
-                ShowWindow(h, 6);
-            }
-            // Non-minimized EmuHawk windows: skip entirely
-            return;
-        }
-        if (t.minimized) {
-            ShowWindow(h, 6);
-        } else {
-            ShowWindow(h, 9);
-            MoveWindow(h, t.x, t.y, t.w, t.h, true);
-        }
-    }
-
-    static string[] GetAllProcessNames(List<WinInfo> targets) {
-        var set = new HashSet<string>();
-        foreach (var t in targets) set.Add(t.process);
-        var arr = new string[set.Count]; set.CopyTo(arr); return arr;
-    }
-
-    // Minimal JSON parser for our known format
-    static List<WinInfo> ParseTargets(string json) {
-        var list = new List<WinInfo>();
-        int i = 0;
-        while (i < json.Length) {
-            int objStart = json.IndexOf('{', i);
-            if (objStart < 0) break;
-            int objEnd = json.IndexOf('}', objStart);
-            if (objEnd < 0) break;
-            var obj = json.Substring(objStart, objEnd - objStart + 1);
-            var w = new WinInfo();
-            w.process = ExtractStr(obj, "process");
-            w.title = ExtractStr(obj, "title");
-            w.x = ExtractInt(obj, "x");
-            w.y = ExtractInt(obj, "y");
-            w.w = ExtractInt(obj, "width");
-            w.h = ExtractInt(obj, "height");
-            w.minimized = obj.Contains("\\"minimized\\":true") || obj.Contains("\\"minimized\\": true");
-            list.Add(w);
-            i = objEnd + 1;
-        }
-        return list;
-    }
-
-    static string ExtractStr(string obj, string key) {
-        var needle = "\\"" + key + "\\":\\"";
-        int s = obj.IndexOf(needle);
-        if (s < 0) return "";
-        s += needle.Length;
-        int e = obj.IndexOf("\\"", s);
-        return e < 0 ? "" : obj.Substring(s, e - s);
-    }
-
-    static int ExtractInt(string obj, string key) {
-        var needle = "\\"" + key + "\\":";
-        int s = obj.IndexOf(needle);
-        if (s < 0) return 0;
-        s += needle.Length;
-        var sb2 = new StringBuilder();
-        while (s < obj.Length && (char.IsDigit(obj[s]) || obj[s] == '-')) { sb2.Append(obj[s]); s++; }
-        int v; int.TryParse(sb2.ToString(), out v); return v;
-    }
-
-    static string Esc(string s) { return s.Replace("\\\\", "\\\\\\\\").Replace("\\"", "\\\\\\""); }
-
-    // MODE: launch-hidden — start a process with no visible window
-    static void LaunchHidden(string exePath, string workDir) {
-        var psi = new ProcessStartInfo();
-        psi.FileName = exePath;
-        psi.WorkingDirectory = workDir;
-        psi.CreateNoWindow = true;
-        psi.UseShellExecute = false;
-        psi.WindowStyle = ProcessWindowStyle.Hidden;
-        Process.Start(psi);
-    }
-
-    // MODE: drop-file — wait for Lua Console, then load a script via menu command
-    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr hWnd);
-    [DllImport("user32.dll")] static extern IntPtr GetSubMenu(IntPtr hMenu, int nPos);
-    [DllImport("user32.dll")] static extern uint GetMenuItemID(IntPtr hMenu, int nPos);
-    [DllImport("user32.dll")] static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-    [DllImport("user32.dll")] static extern IntPtr FindWindowEx(IntPtr hWndParent, IntPtr hWndChildAfter, string lpClassName, string lpWindowName);
-    [DllImport("user32.dll", CharSet=CharSet.Auto)] static extern IntPtr SendMessageStr(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam);
-
-    const uint WM_COMMAND = 0x0111;
-    const uint WM_SETTEXT = 0x000C;
-    const uint BM_CLICK = 0x00F5;
-
-    static void DropFile(string processName, string titleMatch, string filePath, int maxWaitSec) {
-        var start = DateTime.Now;
-        IntPtr targetHwnd = IntPtr.Zero;
-
-        // Poll for the target window
-        while ((DateTime.Now - start).TotalSeconds < maxWaitSec) {
-            var handles = GetAllHandles();
-            var pids = GetTargetPids(new string[] { processName });
-            foreach (var h in handles) {
-                uint wpid; GetWindowThreadProcessId(h, out wpid);
-                string pname;
-                if (!pids.TryGetValue((int)wpid, out pname)) continue;
-                if (pname != processName) continue;
-                var title = GetTitle(h);
-                if (title.IndexOf(titleMatch) >= 0) {
-                    targetHwnd = h;
-                    break;
-                }
-            }
-            if (targetHwnd != IntPtr.Zero) break;
-            Thread.Sleep(200);
-        }
-
-        if (targetHwnd == IntPtr.Zero) return;
-
-        // Get the menu bar and find Script > Open Script command ID
-        IntPtr menuBar = GetMenu(targetHwnd);
-        if (menuBar == IntPtr.Zero) return;
-
-        // Script menu is at index 1 (File=0, Script=1, Settings=2, Help=3)
-        IntPtr scriptMenu = GetSubMenu(menuBar, 1);
-        if (scriptMenu == IntPtr.Zero) return;
-
-        // "Open Script" is typically the first item (index 0)
-        uint openScriptId = GetMenuItemID(scriptMenu, 0);
-        if (openScriptId == 0xFFFFFFFF) return;
-
-        // Send the menu command to open the file dialog
-        SetForegroundWindow(targetHwnd);
-        Thread.Sleep(200);
-        PostMessage(targetHwnd, WM_COMMAND, (IntPtr)openScriptId, IntPtr.Zero);
-
-        // Wait for the Open File dialog to appear
-        IntPtr dlg = IntPtr.Zero;
-        var dlgStart = DateTime.Now;
-        while ((DateTime.Now - dlgStart).TotalSeconds < 5) {
-            Thread.Sleep(200);
-            // Look for the Open dialog (standard Windows file dialog)
-            dlg = FindWindow("#32770", "Open");
-            if (dlg == IntPtr.Zero) dlg = FindWindow("#32770", "Open Script");
-            if (dlg != IntPtr.Zero) break;
-        }
-
-        if (dlg == IntPtr.Zero) return;
-
-        // Find the filename edit box (ComboBoxEx32 > ComboBox > Edit)
-        IntPtr comboBoxEx = FindWindowEx(dlg, IntPtr.Zero, "ComboBoxEx32", null);
-        if (comboBoxEx != IntPtr.Zero) {
-            IntPtr comboBox = FindWindowEx(comboBoxEx, IntPtr.Zero, "ComboBox", null);
-            if (comboBox != IntPtr.Zero) {
-                IntPtr edit = FindWindowEx(comboBox, IntPtr.Zero, "Edit", null);
-                if (edit != IntPtr.Zero) {
-                    // Set the filename
-                    SendMessageStr(edit, WM_SETTEXT, IntPtr.Zero, filePath);
-                    Thread.Sleep(200);
-                }
-            }
-        }
-
-        // Find and click the Open button
-        IntPtr openBtn = FindWindowEx(dlg, IntPtr.Zero, "Button", "&Open");
-        if (openBtn == IntPtr.Zero) openBtn = FindWindowEx(dlg, IntPtr.Zero, "Button", "Open");
-        if (openBtn != IntPtr.Zero) {
-            SendMessage(openBtn, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
-        }
-    }
-
-    // MODE: hide-window — find a window by process name and hide it (SW_HIDE)
-    static void HideWindow(string processName, int maxWaitSec) {
-        var start = DateTime.Now;
-        while ((DateTime.Now - start).TotalSeconds < maxWaitSec) {
-            var handles = GetAllHandles();
-            var pids = GetTargetPids(new string[] { processName });
-            foreach (var h in handles) {
-                uint wpid; GetWindowThreadProcessId(h, out wpid);
-                string pname;
-                if (!pids.TryGetValue((int)wpid, out pname)) continue;
-                if (pname != processName) continue;
-                var title = GetTitle(h);
-                if (string.IsNullOrEmpty(title)) continue;
-                if (title.Contains("Default IME") || title.Contains("MSCTFIME")) continue;
-                // SW_HIDE = 0
-                ShowWindow(h, 0);
-                return;
-            }
-            Thread.Sleep(100);
-        }
-    }
-
-    [STAThread]
-    static void Main(string[] args) {
-        if (args.Length < 1) return;
-        if (args[0] == "capture" && args.Length >= 2) {
-            Capture(args[1].Split(','));
-        } else if (args[0] == "restore" && args.Length >= 2) {
-            Restore(args[1]);
-        } else if (args[0] == "launch-hidden" && args.Length >= 3) {
-            LaunchHidden(args[1], args[2]);
-        } else if (args[0] == "drop-file" && args.Length >= 4) {
-            // drop-file <processName> <titleMatch> <filePath> [maxWaitSec]
-            int wait = args.Length >= 5 ? int.Parse(args[4]) : 15;
-            DropFile(args[1], args[2], args[3], wait);
-        } else if (args[0] == "hide-window" && args.Length >= 2) {
-            int wait = args.Length >= 3 ? int.Parse(args[2]) : 10;
-            HideWindow(args[1], wait);
-        }
-    }
-}
-`, { encoding: 'utf-8' });
 
   try {
     // Try 64-bit first, fall back to 32-bit
@@ -714,14 +408,84 @@ class WinHelper {
   }
 }
 
-app.whenReady().then(() => {
-  const settings = loadSettings();
-  savedTrackerZoom = settings.zoom || null;
-  createMainWindow();
-  compileWindowHelper();
-});
+// ============================================================
+//  Self-test (CI)
+// ============================================================
+// PO_LAUNCHER_SELFTEST=<report file>: boot normally against a throwaway profile, check the
+// things that only break once packaged (preload found? helper shipped and runnable? tracker
+// page loads?), write a JSON report, exit 0 or 1. Never touches the real settings.
+const SELFTEST_REPORT = process.env.PO_LAUNCHER_SELFTEST || null;
+if (SELFTEST_REPORT) {
+  app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'po-launcher-selftest-')));
+}
+
+async function runSelfTest() {
+  const report = { version: app.getVersion(), electron: process.versions.electron, packaged: app.isPackaged, checks: {} };
+  const check = (name, pass, detail) => { report.checks[name] = { pass: !!pass, detail }; };
+  const loaded = (win) => new Promise((resolve) => {
+    if (!win.webContents.isLoading()) return resolve();
+    win.webContents.once('did-finish-load', resolve);
+    win.webContents.once('did-fail-load', (_e, code, desc) => { check('load:' + win.webContents.getURL(), false, desc); resolve(); });
+  });
+  try {
+    await loaded(mainWindow);
+    const page = await mainWindow.webContents.executeJavaScript(
+      `({ bridge: Object.keys(window.launcher || {}), node: typeof require !== 'undefined', play: !!document.getElementById('status-text') })`);
+    check('launcher page has its bridge', page.bridge.includes('invoke') && page.bridge.includes('getPathForFile'), page.bridge);
+    check('launcher page has no Node.js', page.node === false, page.node);
+    check('launcher UI rendered', page.play, page.play);
+
+    if (process.platform === 'win32') {
+      const prebuilt = !!winHelperExePath && winHelperExePath.startsWith(process.resourcesPath);
+      check('WinHelper available', !!winHelperExePath && fs.existsSync(winHelperExePath), winHelperExePath);
+      if (app.isPackaged) check('WinHelper is the prebuilt one (nothing compiled on this machine)', prebuilt, winHelperExePath);
+      const captured = captureExternalWindows();
+      check('WinHelper capture runs and returns JSON', Array.isArray(captured), `${captured.length} windows`);
+    }
+
+    openSettingsWindow();
+    await loaded(settingsWindow);
+    const tracker = await settingsWindow.webContents.executeJavaScript(
+      `({ api: Object.keys(window.electronAPI || {}), theme: typeof applyPoTheme === 'function', node: typeof require !== 'undefined' })`);
+    check('tracker settings page loads with its preload', tracker.api.includes('isElectron') && tracker.theme, tracker.api);
+    check('tracker page has no Node.js', tracker.node === false, tracker.node);
+  } catch (err) {
+    check('self-test ran to completion', false, err.stack);
+  }
+  report.ok = Object.values(report.checks).every(c => c.pass);
+  try { fs.writeFileSync(SELFTEST_REPORT, JSON.stringify(report, null, 2)); } catch {}
+  app.exit(report.ok ? 0 : 1);
+}
+
+// One launcher at a time. Settings are now held in memory, so two instances would
+// each keep their own copy and overwrite each other's saves. A second launch just
+// brings the existing window forward.
+const gotInstanceLock = app.requestSingleInstanceLock();
+if (!gotInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  app.whenReady().then(() => {
+    const settings = loadSettings();
+    savedTrackerZoom = settings.zoom || null;
+    createMainWindow();
+    compileWindowHelper();
+    if (SELFTEST_REPORT) runSelfTest();
+  });
+}
 
 app.on('window-all-closed', () => app.quit());
+
+// Pending settings changes must reach disk before the process goes away.
+app.on('before-quit', flushSettings);
+app.on('will-quit', flushSettings);
 
 // ============================================================
 //  IPC — Window Controls
@@ -804,6 +568,97 @@ ipcMain.handle('scan-staging-folder', (_e, folderPath) => {
 });
 
 // ============================================================
+//  Archipelago host.yaml — who starts the ROM?
+// ============================================================
+// For .aplttp seeds the launcher starts the emulator itself (that is how it can pass --lua=
+// and restore the layout). If Archipelago's own "rom_start" is also on, the emulator opens
+// twice. This is the in-app version of the two "Arch Auto Rom On/Off.bat" files and edits the
+// same two keys, the same way: line by line, only inside their own sections, nothing else
+// in the file touched.
+const AP_HOST_YAML = 'C:\\ProgramData\\Archipelago\\host.yaml';
+const AP_ROMSTART_KEYS = { sni_options: 'snes_rom_start', bizhawkclient_options: 'rom_start' };
+
+// Walk the file; call visit(section, match, lineIndex) for each of the two keys found.
+function scanApHostYaml(lines, visit) {
+  let section = '';
+  lines.forEach((line, i) => {
+    const top = /^([A-Za-z0-9_]+):/.exec(line);
+    if (top) section = top[1];
+    else if (/^\S/.test(line)) section = '';
+    const key = AP_ROMSTART_KEYS[section];
+    if (!key) return;
+    const m = new RegExp(`^(\\s+${key}\\s*:\\s*)(.*?)(\\s*(?:#.*)?)$`).exec(line);
+    if (m) visit(section, m, i);
+  });
+}
+
+// { found, on, values }   on = Archipelago will start the ROM itself (anything but "false")
+function readApRomStart(file = AP_HOST_YAML) {
+  try {
+    const values = {};
+    scanApHostYaml(fs.readFileSync(file, 'utf-8').split(/\r?\n/), (section, m) => { values[section] = m[2]; });
+    const on = Object.values(values).some(v => v.replace(/['"]/g, '').toLowerCase() !== 'false');
+    return { found: Object.keys(values).length > 0, on, values };
+  } catch { return { found: false, on: false, values: {} }; }
+}
+
+// Turn Archipelago's rom_start off (false) or back on. A value other than true/false — AP also
+// accepts a path to an emulator there — is remembered in settings and put back as it was.
+function writeApRomStart(enable, file = AP_HOST_YAML) {
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = raw.split(/\r?\n/);
+    const previous = { ...(loadSettings().apRomStartPrevious || {}) };
+    scanApHostYaml(lines, (section, m, i) => {
+      const isOff = m[2].replace(/['"]/g, '').toLowerCase() === 'false';
+      if (!enable && !isOff) { previous[section] = m[2]; lines[i] = `${m[1]}false${m[3]}`; }
+      if (enable && isOff)   { lines[i] = `${m[1]}${previous[section] || 'true'}${m[3]}`; }
+    });
+    if (!fs.existsSync(file + '.po-launcher.bak')) fs.copyFileSync(file, file + '.po-launcher.bak');
+    const tmp = file + '.po-launcher.tmp';
+    fs.writeFileSync(tmp, lines.join(eol), 'utf-8');
+    fs.renameSync(tmp, file);
+    saveSettings({ apRomStartPrevious: previous });
+    return { ok: true, ...readApRomStart(file) };
+  } catch (err) {
+    return { ok: false, error: err.message, ...readApRomStart(file) };
+  }
+}
+
+ipcMain.handle('ap-romstart-get', () => readApRomStart());
+ipcMain.handle('ap-romstart-set', (event, enable) => writeApRomStart(!!enable));
+
+// ============================================================
+//  Update check
+// ============================================================
+// The portable exe cannot update itself, but it can say that a newer one exists. One anonymous
+// request to GitHub per start; turn it off with "checkForUpdates": false in the settings file.
+const RELEASES_API = 'https://api.github.com/repos/Penderrin-Projects/alttpr-po-launcher/releases/latest';
+const RELEASES_PAGE = 'https://github.com/Penderrin-Projects/alttpr-po-launcher/releases/latest';
+
+function isNewerVersion(latest, current) {
+  const parse = (v) => { const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v).trim()); return m ? m.slice(1).map(Number) : null; };
+  const a = parse(latest), b = parse(current);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; }
+  return false;
+}
+
+ipcMain.handle('check-for-update', async () => {
+  if (loadSettings().checkForUpdates === false) return null;
+  try {
+    const res = await net.fetch(RELEASES_API, { headers: { 'User-Agent': 'alttpr-po-launcher', 'Accept': 'application/vnd.github+json' } });
+    if (!res.ok) return null;
+    const release = await res.json();
+    if (release.draft || release.prerelease) return null;
+    return isNewerVersion(release.tag_name, app.getVersion()) ? { version: String(release.tag_name), current: app.getVersion() } : null;
+  } catch { return null; }
+});
+// The page never supplies the URL; it can only ask for this one fixed page to be opened.
+ipcMain.handle('open-release-page', () => { shell.openExternal(RELEASES_PAGE); });
+
+// ============================================================
 //  IPC — Tracker Windows
 // ============================================================
 ipcMain.handle('open-tracker', () => openTrackerWindow());
@@ -812,6 +667,7 @@ ipcMain.handle('has-tracker-config', () => !!loadSettings().lastTrackerQuery);
 
 // Theme propagation to all open tracker/settings windows
 ipcMain.handle('set-theme', (event, themeName) => {
+  themeName = safeThemeName(themeName);
   const js = `if(typeof applyPoTheme==='function'){applyPoTheme('${themeName}')}`;
   if (trackerWindow && !trackerWindow.isDestroyed()) {
     trackerWindow.webContents.executeJavaScript(js).catch(() => {});
@@ -848,8 +704,27 @@ ipcMain.handle('set-aspect-ratio', (event, ratio) => {
   if (win) win.setAspectRatio(ratio);
 });
 
+// Debug dumps (capture-raw.txt, layout-debug.json, restore-debug.json, *-error.txt).
+//
+// They used to be written on every run next to process.execPath. In the portable build that
+// is the temp extraction folder, so nobody could find them anyway. They now go to
+// <userData>/logs, and only when asked for:
+//   - always when running from source (npm start), as before
+//   - in a packaged build when PO_LAUNCHER_DEBUG=1 is set, or "debugLogs": true is in
+//     po-launcher-settings.json
+// Writing them is best-effort and can never fail real work.
+function writeDebugFile(name, content) {
+  try {
+    const enabled = !app.isPackaged || process.env.PO_LAUNCHER_DEBUG === '1' || loadSettings().debugLogs === true;
+    if (!enabled) return;
+    const dir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), content, 'utf-8');
+  } catch {}
+}
+
 // ============================================================
-//  LAYOUT — PowerShell Window Capture & Restore
+//  LAYOUT — Window Capture & Restore (WinHelper.exe)
 // ============================================================
 
 // Names of external processes to capture.
@@ -868,16 +743,14 @@ function getExternalProcessNames(settings) {
 function captureExternalWindows() {
   const settings = loadSettings();
   const processNames = getExternalProcessNames(settings);
-  const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-
-  // Use compiled helper if available, fall back to PowerShell
+  // Use the WinHelper exe if one is available
   if (winHelperExePath && fs.existsSync(winHelperExePath)) {
     try {
       const result = execSync(
         `"${winHelperExePath}" capture "${processNames.join(',')}"`,
         { windowsHide: true, encoding: 'utf-8', timeout: 5000 }
       ).trim();
-      fs.writeFileSync(path.join(debugBase, 'capture-raw.txt'), result, 'utf-8');
+      writeDebugFile('capture-raw.txt', result);
       if (!result || result === '[]') return [];
       const all = JSON.parse(result);
 
@@ -889,114 +762,17 @@ function captureExternalWindows() {
         return true;
       });
     } catch (err) {
-      fs.writeFileSync(path.join(debugBase, 'capture-error.txt'),
-        `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`, 'utf-8');
+      writeDebugFile('capture-error.txt',
+        `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`);
       return [];
     }
   }
 
-  // Fallback: PowerShell (slow but works)
-  return captureExternalWindowsPS(processNames, debugBase);
+  // No helper available (no prebuilt exe and no csc.exe to build one). External windows
+  // are simply not captured; the launcher's own windows still are.
+  return [];
 }
 
-// PowerShell fallback for capture
-function captureExternalWindowsPS(processNames, debugBase) {
-  const namesList = processNames.map(n => `'${n}'`).join(',');
-  const script = [
-    '$ErrorActionPreference = "Stop"',
-    '',
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'using System.Text;',
-    'using System.Collections.Generic;',
-    'public class WinHelper {',
-    '    public delegate bool EnumWinProc(IntPtr h, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWinProc cb, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);',
-    '    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
-    '    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
-    '    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);',
-    '    [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT wp);',
-    '    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }',
-    '    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }',
-    '    [StructLayout(LayoutKind.Sequential)] public struct WINDOWPLACEMENT {',
-    '        public int length, flags, showCmd;',
-    '        public POINT minPos, maxPos;',
-    '        public RECT normalPos;',
-    '    }',
-    '}',
-    '"@',
-    '',
-    `$targetNames = @(${namesList})`,
-    '$pids = @{}',
-    'foreach ($n in $targetNames) {',
-    '    Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object { $pids[$_.Id] = $_.ProcessName }',
-    '}',
-    '',
-    '$allHandles = New-Object System.Collections.Generic.List[IntPtr]',
-    '$callback = [WinHelper+EnumWinProc]{',
-    '    param($h, $l)',
-    '    if ([WinHelper]::GetWindowTextLength($h) -gt 0) { $allHandles.Add($h) }',
-    '    return $true',
-    '}',
-    '[WinHelper]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null',
-    '',
-    '$results = @()',
-    'foreach ($h in $allHandles) {',
-    '    $wpid = [uint32]0',
-    '    [WinHelper]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null',
-    '    if ($pids.ContainsKey([int]$wpid)) {',
-    '        $sb = New-Object System.Text.StringBuilder 256',
-    '        [WinHelper]::GetWindowText($h, $sb, 256) | Out-Null',
-    '        $t = $sb.ToString()',
-    '        if ($t -eq "") { continue }',
-    '        $iconic = [WinHelper]::IsIconic($h)',
-    '        $wp = New-Object WinHelper+WINDOWPLACEMENT',
-    '        $wp.length = [System.Runtime.InteropServices.Marshal]::SizeOf($wp)',
-    '        [WinHelper]::GetWindowPlacement($h, [ref]$wp) | Out-Null',
-    '        $r = $wp.normalPos',
-    '        $results += [PSCustomObject]@{',
-    '            process = $pids[[int]$wpid]',
-    '            title = $t',
-    '            x = $r.L',
-    '            y = $r.T',
-    '            width = $r.R - $r.L',
-    '            height = $r.B - $r.T',
-    '            minimized = [bool]$iconic',
-    '        }',
-    '    }',
-    '}',
-    '',
-    'if ($results.Count -eq 0) { Write-Output "[]" }',
-    'elseif ($results.Count -eq 1) { Write-Output ("[" + ($results | ConvertTo-Json -Compress) + "]") }',
-    'else { Write-Output ($results | ConvertTo-Json -Compress) }',
-  ].join('\r\n');
-
-  try {
-    const tmpScript = path.join(app.getPath('temp'), 'po-launcher-capture.ps1');
-    fs.writeFileSync(tmpScript, script, { encoding: 'utf-8' });
-    const result = execSync(
-      `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
-      { windowsHide: true, encoding: 'utf-8', timeout: 10000 }
-    ).trim();
-    fs.writeFileSync(path.join(debugBase, 'capture-raw.txt'), result, 'utf-8');
-    if (!result || result === '[]') return [];
-    const parsed = JSON.parse(result);
-    const all = Array.isArray(parsed) ? parsed : [parsed];
-    const junkTitles = ['Default IME', 'MSCTFIME UI', 'GDI+ Window', 'NVOGLDC',
-                        '__wglDummyWindow', '.NET-BroadcastEvent'];
-    return all.filter(w => {
-      if (junkTitles.some(j => w.title.includes(j))) return false;
-      if (!w.minimized && (w.width < 50 || w.height < 50)) return false;
-      return true;
-    });
-  } catch (err) {
-    fs.writeFileSync(path.join(debugBase, 'capture-error.txt'),
-      `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`, 'utf-8');
-    return [];
-  }
-}
 
 // ============================================================
 //  IPC — Layout Save/Restore
@@ -1024,11 +800,7 @@ ipcMain.handle('save-layout', (_e, layoutType) => {
   saveSettings({ [key]: layout });
 
   // Write debug log
-  const debugPath = path.join(
-    app.isPackaged ? path.dirname(process.execPath) : __dirname,
-    'layout-debug.json'
-  );
-  fs.writeFileSync(debugPath, JSON.stringify({ layoutType, layout }, null, 2), 'utf-8');
+  writeDebugFile('layout-debug.json', JSON.stringify({ layoutType, layout }, null, 2));
 
   const count = (layout.mainWindow ? 1 : 0) + (layout.trackerWindow ? 1 : 0) + externalWindows.length;
   return { saved: true, windowCount: count };
@@ -1041,17 +813,17 @@ function restoreLayout(layoutType) {
   if (!layout) return;
 
   // Restore Electron windows immediately
-  if (layout.mainWindow && mainWindow && !mainWindow.isDestroyed()) {
+  // (skipped when the saved spot is on a monitor that isn't connected right now)
+  if (layout.mainWindow && mainWindow && !mainWindow.isDestroyed() && boundsAreVisible(layout.mainWindow)) {
     mainWindow.setBounds(layout.mainWindow);
   }
-  if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed()) {
+  if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed() && boundsAreVisible(layout.trackerWindow)) {
     trackerWindow.setBounds(layout.trackerWindow);
   }
 
   // Poll for external windows and restore each as it appears
   if (layout.externalWindows && layout.externalWindows.length > 0) {
-    const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-    fs.writeFileSync(path.join(debugBase, 'restore-debug.json'), JSON.stringify(layout.externalWindows, null, 2), 'utf-8');
+    writeDebugFile('restore-debug.json', JSON.stringify(layout.externalWindows, null, 2));
     pollAndRestoreExternalWindows(layout.externalWindows);
   }
 }
@@ -1060,11 +832,12 @@ function restoreLayout(layoutType) {
 // The exe polls internally every 300ms until all windows found or 20s timeout.
 // Starts in ~100ms vs PowerShell's ~3s.
 function pollAndRestoreExternalWindows(targetWindows) {
-  const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-
   if (winHelperExePath && fs.existsSync(winHelperExePath)) {
     // Write target windows to JSON config file
     const configPath = path.join(app.getPath('temp'), 'po-launcher', 'restore-config.json');
+    // This folder used to exist as a side effect of compiling the helper into it. With a
+    // prebuilt helper nothing else creates it, so make sure it is there.
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(targetWindows), { encoding: 'utf-8' });
 
     // Fire and forget — exe handles polling internally
@@ -1075,91 +848,10 @@ function pollAndRestoreExternalWindows(targetWindows) {
     return;
   }
 
-  // Fallback: PowerShell single-script polling (slow startup but works)
-  pollAndRestoreExternalWindowsPS(targetWindows, debugBase);
+  // No helper available: external windows are left where they open.
 }
 
-// PowerShell fallback for restore polling
-function pollAndRestoreExternalWindowsPS(targetWindows, debugBase) {
-  const windowBlocks = targetWindows.map((w, i) => {
-    const safeTitle = w.title.replace(/'/g, "''");
-    const processName = w.process.replace(/'/g, "''");
-    const matchStr = safeTitle.substring(0, Math.min(safeTitle.length, 30)).replace(/'/g, "''");
-    const restoreAction = w.minimized
-      ? `[WinHelper]::ShowWindow($h, 6) | Out-Null`
-      : [
-          `[WinHelper]::ShowWindow($h, 9) | Out-Null`,
-          `[WinHelper]::MoveWindow($h, ${w.x}, ${w.y}, ${w.width}, ${w.height}, $true) | Out-Null`,
-        ].join('\r\n                ');
-    return [
-      `        if (-not $restored[${i}]) {`,
-      `            foreach ($h in $handles) {`,
-      `                $wpid = [uint32]0`,
-      `                [WinHelper]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null`,
-      `                $proc = Get-Process -Id $wpid -ErrorAction SilentlyContinue`,
-      `                if ($proc -and $proc.ProcessName -eq '${processName}') {`,
-      `                    $sb = New-Object System.Text.StringBuilder 256`,
-      `                    [WinHelper]::GetWindowText($h, $sb, 256) | Out-Null`,
-      `                    $t = $sb.ToString()`,
-      `                    if ($t -like '*${matchStr}*') {`,
-      `                ${restoreAction}`,
-      `                        $restored[${i}] = $true`,
-      `                        $restoredCount++`,
-      `                        break`,
-      `                    }`,
-      `                }`,
-      `            }`,
-      `        }`,
-    ].join('\r\n');
-  });
 
-  const script = [
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'using System.Text;',
-    'using System.Collections.Generic;',
-    'public class WinHelper {',
-    '    public delegate bool EnumWinProc(IntPtr h, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWinProc cb, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);',
-    '    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
-    '    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
-    '    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool r);',
-    '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);',
-    '}',
-    '"@',
-    '',
-    `$totalWindows = ${targetWindows.length}`,
-    '$restored = @(' + targetWindows.map(() => '$false').join(',') + ')',
-    '$restoredCount = 0',
-    '$startTime = Get-Date',
-    '',
-    'while ($restoredCount -lt $totalWindows -and ((Get-Date) - $startTime).TotalSeconds -lt 20) {',
-    '    $handles = New-Object System.Collections.Generic.List[IntPtr]',
-    '    $callback = [WinHelper+EnumWinProc]{',
-    '        param($h, $l)',
-    '        if ([WinHelper]::GetWindowTextLength($h) -gt 0) { $handles.Add($h) }',
-    '        return $true',
-    '    }',
-    '    [WinHelper]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null',
-    '',
-    ...windowBlocks,
-    '',
-    '    if ($restoredCount -lt $totalWindows) { Start-Sleep -Milliseconds 400 }',
-    '}',
-  ].join('\r\n');
-
-  try {
-    const tmpScript = path.join(app.getPath('temp'), 'po-launcher-restore.ps1');
-    fs.writeFileSync(tmpScript, script, { encoding: 'utf-8' });
-    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`, { windowsHide: true, timeout: 25000 });
-  } catch (err) {
-    fs.writeFileSync(path.join(debugBase, 'restore-error.txt'), err.message, 'utf-8');
-  }
-}
-
-// Try to restore specific windows. Calls back with array of titles that were found and restored.
 // ============================================================
 //  Lua Console Helper
 // ============================================================
@@ -1179,6 +871,143 @@ function getLuaLauncherPath(realScriptPath) {
 }
 
 // ============================================================
+//  Companion App Launch
+// ============================================================
+// Start the emulator / SNI / timer and leave it running on its own.
+//
+// This is deliberately the same launch as before: exec() ran
+//   cmd.exe /d /s /c "<command line>"   with cwd = the app's folder,
+// and spawn(..., { shell: true }) produces exactly that. The one difference is
+// stdio: 'ignore'. exec() pipes the app's console output into this process and keeps
+// up to 1 MB of it; past that, Node kills the cmd.exe wrapper and closes the pipe, and
+// from then on every console write the app makes fails with EPIPE (measured on
+// Windows: the app itself survives, its output stream does not). Nothing here ever
+// read that output, so it now goes nowhere instead.
+//
+// DO NOT "simplify" this to spawn(exePath, [args]) without the shell. On Windows,
+// Node puts every direct, non-detached child into a kill-on-close job object, so a
+// directly spawned emulator dies the moment the launcher closes (measured: killed at
+// the same millisecond). Going through cmd.exe is what lets BizHawk / SNI / the timer
+// outlive the launcher: cmd.exe is the job member, the app it starts is not.
+function launchApp(exePath, argString) {
+  const commandLine = argString ? `"${exePath}" ${argString}` : `"${exePath}"`;
+  try {
+    const child = spawn(commandLine, { cwd: path.dirname(exePath), shell: true, stdio: 'ignore' });
+    child.on('error', (err) => console.error(`Launch failed (${exePath}):`, err.message));
+    child.unref();
+  } catch (err) {
+    console.error(`Launch failed (${exePath}):`, err.message);
+  }
+}
+
+// Is this exe already running? Used for SNI and the timer only: a second SNI can't
+// bind its port, and a second timer is just a stray window the layout restore won't
+// place. The emulator is never checked — relaunching it is the user's call.
+// Any doubt (odd file name, tasklist unavailable) answers "no", i.e. launch as before.
+function isAppRunning(exePath) {
+  if (process.platform !== 'win32') return false;
+  const image = path.basename(exePath);
+  if (!/^[\w .()+\-\[\]]+$/.test(image)) return false;
+  try {
+    const out = execSync(`tasklist /FI "IMAGENAME eq ${image}" /FO CSV /NH`,
+      { windowsHide: true, encoding: 'utf-8', timeout: 5000 });
+    return out.toLowerCase().includes(`"${image.toLowerCase()}"`);
+  } catch { return false; }
+}
+
+// launchApp(), unless it's already up. Returns true if it was already running.
+function launchAppOnce(exePath) {
+  if (isAppRunning(exePath)) return true;
+  launchApp(exePath);
+  return false;
+}
+
+// ============================================================
+//  ROM Staging
+// ============================================================
+// Put the chosen ROM into the pack folder under the pack's MSU name and make it
+// the only ROM in there. Returns the staged path.
+//
+// The cleanup rule is unchanged — every .sfc/.aplttp in the pack folder is removed —
+// because the rest of the launcher relies on it: MSU-1 needs the ROM to carry the
+// pack's name, and the Archipelago flow treats "an .sfc appeared in this folder" as
+// the signal that generation finished, so a stale .sfc would be picked up instantly.
+//
+// What changed is the ORDER. It used to delete first and copy second, so launching a
+// ROM that already lived in the pack folder deleted the source before it was copied:
+// the copy failed with ENOENT and the ROM was gone. Now the copy happens first, under
+// a name the cleanup never matches, and is renamed into place at the end.
+function stageRom(romPath, pack) {
+  const romExt = path.extname(romPath).toLowerCase();
+  const destRom = path.join(pack.path, pack.msuBase + romExt);
+  const tmpRom = path.join(pack.path, `.po-staging-${process.pid}.tmp`);
+
+  // Sweep up after any earlier run that was interrupted mid-stage.
+  for (const f of fs.readdirSync(pack.path)) {
+    if (/^\.po-staging-\d+\.tmp$/.test(f)) {
+      try { fs.unlinkSync(path.join(pack.path, f)); } catch {}
+    }
+  }
+
+  fs.copyFileSync(romPath, tmpRom);
+  try {
+    for (const f of fs.readdirSync(pack.path)) {
+      const ext = path.extname(f).toLowerCase();
+      if (ext === '.sfc' || ext === '.aplttp') {
+        fs.unlinkSync(path.join(pack.path, f));
+      }
+    }
+    fs.renameSync(tmpRom, destRom);
+  } catch (err) {
+    try { fs.unlinkSync(tmpRom); } catch {}
+    throw err;
+  }
+  return destRom;
+}
+
+// Wait for Archipelago to generate the .sfc in the pack folder.
+// Same signal as before (an .sfc appears; stageRom() guarantees none was there), same
+// 60s limit. The addition: the emulator is never handed a ROM that is still being
+// written. "Finished" means the size has stopped changing —
+//   - for 2 polls in a row if the file is shaped like a complete SNES ROM (a whole
+//     number of 32 KB banks, at least 512 KB, optionally + a 512-byte copier header);
+//   - for 4 polls in a row (1s) for anything else. An unusual ROM is only ever delayed,
+//     never refused, so this can't turn a working launch into a timeout.
+// Resolves with the full path, or null on timeout.
+function waitForGeneratedSfc(packDir, timeoutMs = 60000, pollMs = 250) {
+  const looksLikeWholeRom = (size) => {
+    const body = size % 0x8000 === 512 ? size - 512 : size;
+    return body >= 0x80000 && body % 0x8000 === 0;
+  };
+  return new Promise((resolve) => {
+    const started = Date.now();
+    let lastName = null;
+    let lastSize = -1;
+    let stablePolls = 0;
+    const interval = setInterval(() => {
+      try {
+        const sfc = fs.readdirSync(packDir).find(f => f.toLowerCase().endsWith('.sfc'));
+        if (sfc) {
+          const size = fs.statSync(path.join(packDir, sfc)).size;
+          stablePolls = (size > 0 && sfc === lastName && size === lastSize) ? stablePolls + 1 : 0;
+          lastName = sfc;
+          lastSize = size;
+          if (stablePolls >= (looksLikeWholeRom(size) ? 1 : 3)) {
+            clearInterval(interval);
+            resolve(path.join(packDir, sfc));
+            return;
+          }
+        }
+      } catch {}
+      if (Date.now() - started > timeoutMs) {
+        clearInterval(interval);
+        resolve(null);
+      }
+    }, pollMs);
+  });
+}
+
+// ============================================================
 //  IPC — Launch ROM
 // ============================================================
 ipcMain.handle('launch-rom', async (_e, {
@@ -1191,20 +1020,17 @@ ipcMain.handle('launch-rom', async (_e, {
 }) => {
   try {
     const romExt = path.extname(romPath).toLowerCase();
-    const destRom = path.join(pack.path, pack.msuBase + romExt);
     const isArchipelago = romExt === '.aplttp';
 
-    // Clean old ROMs in destination
-    const existing = fs.readdirSync(pack.path);
-    for (const f of existing) {
-      const ext = path.extname(f).toLowerCase();
-      if (ext === '.sfc' || ext === '.aplttp') {
-        fs.unlinkSync(path.join(pack.path, f));
-      }
-    }
+    // Copy ROM into the pack folder (copy first, then clean old ROMs — see stageRom)
+    const destRom = stageRom(romPath, pack);
 
-    // Copy ROM
-    fs.copyFileSync(romPath, destRom);
+    // If the ROM was launched from inside the pack folder, its old name is gone now;
+    // the renderer needs the new path or the next Play would fail with "file not found".
+    const romMovedTo = fs.existsSync(romPath) ? null : destRom;
+
+    // Companions we found already running and therefore did not start again
+    const alreadyRunning = [];
 
     // Open built-in tracker
     let trackerResult = 'skipped';
@@ -1221,29 +1047,11 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch timer
       if (launchTimer && timerPath) {
-        exec(`"${timerPath}"`, { cwd: path.dirname(timerPath) });
+        if (launchAppOnce(timerPath)) alreadyRunning.push('Timer');
       }
 
-      // Poll for the generated .sfc file (Archipelago creates it)
-      const packDir = pack.path;
-      const generatedSfc = await new Promise((resolve) => {
-        let elapsed = 0;
-        const interval = setInterval(() => {
-          try {
-            const files = fs.readdirSync(packDir);
-            const sfc = files.find(f => f.toLowerCase().endsWith('.sfc'));
-            if (sfc) {
-              clearInterval(interval);
-              resolve(path.join(packDir, sfc));
-            }
-          } catch {}
-          elapsed += 500;
-          if (elapsed > 60000) { // 60 second timeout
-            clearInterval(interval);
-            resolve(null);
-          }
-        }, 500);
-      });
+      // Poll for the generated .sfc file (Archipelago creates it) — 60 second timeout
+      const generatedSfc = await waitForGeneratedSfc(pack.path);
 
       if (!generatedSfc) {
         return { success: false, error: 'Timeout waiting for Archipelago to generate .sfc' };
@@ -1251,7 +1059,7 @@ ipcMain.handle('launch-rom', async (_e, {
 
       // Launch SNI
       if (launchSni && sniPath) {
-        exec(`"${sniPath}"`, { cwd: path.dirname(sniPath) });
+        if (launchAppOnce(sniPath)) alreadyRunning.push('SNI');
       }
 
       // Start layout restore
@@ -1264,7 +1072,7 @@ ipcMain.handle('launch-rom', async (_e, {
           const luaPath = luaScriptPath || getLuaLauncherPath(null);
           args += ` --lua="${luaPath}"`;
         }
-        exec(`"${emulatorPath}" ${args}`, { cwd: path.dirname(emulatorPath) });
+        launchApp(emulatorPath, args);
       } else {
         shell.openPath(generatedSfc);
       }
@@ -1272,12 +1080,12 @@ ipcMain.handle('launch-rom', async (_e, {
       // === NORMAL SFC FLOW ===
       // Launch SNI
       if (launchSni && sniPath) {
-        exec(`"${sniPath}"`, { cwd: path.dirname(sniPath) });
+        if (launchAppOnce(sniPath)) alreadyRunning.push('SNI');
       }
 
       // Launch timer
       if (launchTimer && timerPath) {
-        exec(`"${timerPath}"`, { cwd: path.dirname(timerPath) });
+        if (launchAppOnce(timerPath)) alreadyRunning.push('Timer');
       }
 
       // Start layout restore polling BEFORE launching emulator
@@ -1292,13 +1100,14 @@ ipcMain.handle('launch-rom', async (_e, {
           const luaPath = luaScriptPath || getLuaLauncherPath(null);
           args += ` --lua="${luaPath}"`;
         }
-        exec(`"${emulatorPath}" ${args}`, { cwd: path.dirname(emulatorPath) });
+        launchApp(emulatorPath, args);
       } else {
         shell.openPath(destRom);
       }
     }
 
-    return { success: true, trackerResult };
+    const apRomStartOn = isArchipelago && readApRomStart().on;
+    return { success: true, trackerResult, romMovedTo, alreadyRunning, apRomStartOn };
   } catch (err) {
     return { success: false, error: err.message };
   }
