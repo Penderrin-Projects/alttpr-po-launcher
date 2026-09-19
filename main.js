@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execSync, spawn } = require('child_process');
@@ -408,6 +408,55 @@ function compileWindowHelper() {
   }
 }
 
+// ============================================================
+//  Self-test (CI)
+// ============================================================
+// PO_LAUNCHER_SELFTEST=<report file>: boot normally against a throwaway profile, check the
+// things that only break once packaged (preload found? helper shipped and runnable? tracker
+// page loads?), write a JSON report, exit 0 or 1. Never touches the real settings.
+const SELFTEST_REPORT = process.env.PO_LAUNCHER_SELFTEST || null;
+if (SELFTEST_REPORT) {
+  app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'po-launcher-selftest-')));
+}
+
+async function runSelfTest() {
+  const report = { version: app.getVersion(), electron: process.versions.electron, packaged: app.isPackaged, checks: {} };
+  const check = (name, pass, detail) => { report.checks[name] = { pass: !!pass, detail }; };
+  const loaded = (win) => new Promise((resolve) => {
+    if (!win.webContents.isLoading()) return resolve();
+    win.webContents.once('did-finish-load', resolve);
+    win.webContents.once('did-fail-load', (_e, code, desc) => { check('load:' + win.webContents.getURL(), false, desc); resolve(); });
+  });
+  try {
+    await loaded(mainWindow);
+    const page = await mainWindow.webContents.executeJavaScript(
+      `({ bridge: Object.keys(window.launcher || {}), node: typeof require !== 'undefined', play: !!document.getElementById('status-text') })`);
+    check('launcher page has its bridge', page.bridge.includes('invoke') && page.bridge.includes('getPathForFile'), page.bridge);
+    check('launcher page has no Node.js', page.node === false, page.node);
+    check('launcher UI rendered', page.play, page.play);
+
+    if (process.platform === 'win32') {
+      const prebuilt = !!winHelperExePath && winHelperExePath.startsWith(process.resourcesPath);
+      check('WinHelper available', !!winHelperExePath && fs.existsSync(winHelperExePath), winHelperExePath);
+      if (app.isPackaged) check('WinHelper is the prebuilt one (nothing compiled on this machine)', prebuilt, winHelperExePath);
+      const captured = captureExternalWindows();
+      check('WinHelper capture runs and returns JSON', Array.isArray(captured), `${captured.length} windows`);
+    }
+
+    openSettingsWindow();
+    await loaded(settingsWindow);
+    const tracker = await settingsWindow.webContents.executeJavaScript(
+      `({ api: Object.keys(window.electronAPI || {}), theme: typeof applyPoTheme === 'function', node: typeof require !== 'undefined' })`);
+    check('tracker settings page loads with its preload', tracker.api.includes('isElectron') && tracker.theme, tracker.api);
+    check('tracker page has no Node.js', tracker.node === false, tracker.node);
+  } catch (err) {
+    check('self-test ran to completion', false, err.stack);
+  }
+  report.ok = Object.values(report.checks).every(c => c.pass);
+  try { fs.writeFileSync(SELFTEST_REPORT, JSON.stringify(report, null, 2)); } catch {}
+  app.exit(report.ok ? 0 : 1);
+}
+
 // One launcher at a time. Settings are now held in memory, so two instances would
 // each keep their own copy and overwrite each other's saves. A second launch just
 // brings the existing window forward.
@@ -428,6 +477,7 @@ if (!gotInstanceLock) {
     savedTrackerZoom = settings.zoom || null;
     createMainWindow();
     compileWindowHelper();
+    if (SELFTEST_REPORT) runSelfTest();
   });
 }
 
@@ -516,6 +566,97 @@ ipcMain.handle('scan-staging-folder', (_e, folderPath) => {
     return roms.length > 0 ? roms[0] : null;
   } catch (err) { return null; }
 });
+
+// ============================================================
+//  Archipelago host.yaml — who starts the ROM?
+// ============================================================
+// For .aplttp seeds the launcher starts the emulator itself (that is how it can pass --lua=
+// and restore the layout). If Archipelago's own "rom_start" is also on, the emulator opens
+// twice. This is the in-app version of the two "Arch Auto Rom On/Off.bat" files and edits the
+// same two keys, the same way: line by line, only inside their own sections, nothing else
+// in the file touched.
+const AP_HOST_YAML = 'C:\\ProgramData\\Archipelago\\host.yaml';
+const AP_ROMSTART_KEYS = { sni_options: 'snes_rom_start', bizhawkclient_options: 'rom_start' };
+
+// Walk the file; call visit(section, match, lineIndex) for each of the two keys found.
+function scanApHostYaml(lines, visit) {
+  let section = '';
+  lines.forEach((line, i) => {
+    const top = /^([A-Za-z0-9_]+):/.exec(line);
+    if (top) section = top[1];
+    else if (/^\S/.test(line)) section = '';
+    const key = AP_ROMSTART_KEYS[section];
+    if (!key) return;
+    const m = new RegExp(`^(\\s+${key}\\s*:\\s*)(.*?)(\\s*(?:#.*)?)$`).exec(line);
+    if (m) visit(section, m, i);
+  });
+}
+
+// { found, on, values }   on = Archipelago will start the ROM itself (anything but "false")
+function readApRomStart(file = AP_HOST_YAML) {
+  try {
+    const values = {};
+    scanApHostYaml(fs.readFileSync(file, 'utf-8').split(/\r?\n/), (section, m) => { values[section] = m[2]; });
+    const on = Object.values(values).some(v => v.replace(/['"]/g, '').toLowerCase() !== 'false');
+    return { found: Object.keys(values).length > 0, on, values };
+  } catch { return { found: false, on: false, values: {} }; }
+}
+
+// Turn Archipelago's rom_start off (false) or back on. A value other than true/false — AP also
+// accepts a path to an emulator there — is remembered in settings and put back as it was.
+function writeApRomStart(enable, file = AP_HOST_YAML) {
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+    const lines = raw.split(/\r?\n/);
+    const previous = { ...(loadSettings().apRomStartPrevious || {}) };
+    scanApHostYaml(lines, (section, m, i) => {
+      const isOff = m[2].replace(/['"]/g, '').toLowerCase() === 'false';
+      if (!enable && !isOff) { previous[section] = m[2]; lines[i] = `${m[1]}false${m[3]}`; }
+      if (enable && isOff)   { lines[i] = `${m[1]}${previous[section] || 'true'}${m[3]}`; }
+    });
+    if (!fs.existsSync(file + '.po-launcher.bak')) fs.copyFileSync(file, file + '.po-launcher.bak');
+    const tmp = file + '.po-launcher.tmp';
+    fs.writeFileSync(tmp, lines.join(eol), 'utf-8');
+    fs.renameSync(tmp, file);
+    saveSettings({ apRomStartPrevious: previous });
+    return { ok: true, ...readApRomStart(file) };
+  } catch (err) {
+    return { ok: false, error: err.message, ...readApRomStart(file) };
+  }
+}
+
+ipcMain.handle('ap-romstart-get', () => readApRomStart());
+ipcMain.handle('ap-romstart-set', (event, enable) => writeApRomStart(!!enable));
+
+// ============================================================
+//  Update check
+// ============================================================
+// The portable exe cannot update itself, but it can say that a newer one exists. One anonymous
+// request to GitHub per start; turn it off with "checkForUpdates": false in the settings file.
+const RELEASES_API = 'https://api.github.com/repos/Penderrin-Projects/alttpr-po-launcher/releases/latest';
+const RELEASES_PAGE = 'https://github.com/Penderrin-Projects/alttpr-po-launcher/releases/latest';
+
+function isNewerVersion(latest, current) {
+  const parse = (v) => { const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v).trim()); return m ? m.slice(1).map(Number) : null; };
+  const a = parse(latest), b = parse(current);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) { if (a[i] !== b[i]) return a[i] > b[i]; }
+  return false;
+}
+
+ipcMain.handle('check-for-update', async () => {
+  if (loadSettings().checkForUpdates === false) return null;
+  try {
+    const res = await net.fetch(RELEASES_API, { headers: { 'User-Agent': 'alttpr-po-launcher', 'Accept': 'application/vnd.github+json' } });
+    if (!res.ok) return null;
+    const release = await res.json();
+    if (release.draft || release.prerelease) return null;
+    return isNewerVersion(release.tag_name, app.getVersion()) ? { version: String(release.tag_name), current: app.getVersion() } : null;
+  } catch { return null; }
+});
+// The page never supplies the URL; it can only ask for this one fixed page to be opened.
+ipcMain.handle('open-release-page', () => { shell.openExternal(RELEASES_PAGE); });
 
 // ============================================================
 //  IPC — Tracker Windows
@@ -965,7 +1106,8 @@ ipcMain.handle('launch-rom', async (_e, {
       }
     }
 
-    return { success: true, trackerResult, romMovedTo, alreadyRunning };
+    const apRomStartOn = isArchipelago && readApRomStart().on;
+    return { success: true, trackerResult, romMovedTo, alreadyRunning, apRomStartOn };
   } catch (err) {
     return { success: false, error: err.message };
   }

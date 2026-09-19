@@ -79,6 +79,12 @@
       <button class="layout-btn" id="btn-save-layout-aplttp" title="Save current window layout for .aplttp ROMs">💾 Save AP Layout</button>
     </div>
 
+    <div class="update-banner" id="update-banner" style="display:none">
+      <span id="update-text"></span>
+      <button class="companion-browse" id="btn-update-open">Get it</button>
+      <button class="companion-browse" id="btn-update-dismiss" title="Hide until next start">✕</button>
+    </div>
+
     <div class="status-bar">
       <div class="status-dot" id="status-dot"></div>
       <span id="status-text">Ready</span>
@@ -135,6 +141,13 @@
       <label class="companion-label" for="chk-timer">Timer</label>
       <span class="companion-path not-set" id="timer-path">Not set</span>
       <button class="companion-browse" id="btn-browse-timer">Browse</button>
+    </div>
+
+    <!-- Archipelago: make sure only the launcher starts the ROM (shown only if host.yaml exists) -->
+    <div class="companion-row" id="ap-romstart-row" style="display:none">
+      <input type="checkbox" class="companion-checkbox" id="chk-ap-romstart">
+      <label class="companion-label" for="chk-ap-romstart" title="Archipelago's host.yaml: snes_rom_start / rom_start. When Archipelago also starts the ROM, the emulator opens twice.">AP fix</label>
+      <span class="companion-path" id="ap-romstart-status" style="flex:1;font-size:10px"></span>
     </div>
   </div>
 

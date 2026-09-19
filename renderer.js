@@ -533,6 +533,7 @@ playBtn.addEventListener('click', async () => {
     // ROM was launched from inside the pack folder and now carries the pack's name
     if (result.romMovedTo) romPath = result.romMovedTo;
     let msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    if (result.apRomStartOn) msg += ' (Archipelago rom_start is ON — see AP fix in settings)';
     if (result.alreadyRunning && result.alreadyRunning.length > 0) {
       msg += ` (${result.alreadyRunning.join(' & ')} already running)`;
     }
@@ -548,6 +549,33 @@ playBtn.addEventListener('click', async () => {
     updatePlayState();
   }
 });
+
+// --- Archipelago rom_start (host.yaml) ---
+const apRow = document.getElementById('ap-romstart-row');
+const apChk = document.getElementById('chk-ap-romstart');
+const apStatus = document.getElementById('ap-romstart-status');
+function showApRomStart(state) {
+  if (!state || !state.found) { apRow.style.display = 'none'; return; }
+  apRow.style.display = '';
+  apChk.checked = !state.on;                       // checked = fixed = only the launcher starts the ROM
+  apStatus.className = 'companion-path ' + (state.on ? 'warn' : 'good');
+  apStatus.textContent = state.on ? 'Archipelago also starts the ROM — emulator opens twice' : 'Only the launcher starts the ROM';
+}
+apChk.addEventListener('change', async () => {
+  const state = await ipcRenderer.invoke('ap-romstart-set', !apChk.checked);
+  if (state && state.ok === false) setStatus(`Could not update host.yaml: ${state.error}`, 'error');
+  showApRomStart(state);
+});
+ipcRenderer.invoke('ap-romstart-get').then(showApRomStart).catch(() => {});
+
+// --- Update notice ---
+ipcRenderer.invoke('check-for-update').then((update) => {
+  if (!update) return;
+  document.getElementById('update-text').textContent = `Version ${update.version} is available (you have ${update.current})`;
+  document.getElementById('update-banner').style.display = '';
+}).catch(() => {});
+document.getElementById('btn-update-open').addEventListener('click', () => ipcRenderer.invoke('open-release-page'));
+document.getElementById('btn-update-dismiss').addEventListener('click', () => { document.getElementById('update-banner').style.display = 'none'; });
 
 // --- Prevent default drag on window ---
 document.addEventListener('dragover', (e) => e.preventDefault());

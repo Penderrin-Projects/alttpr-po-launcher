@@ -17,6 +17,8 @@ const INVOKE_CHANNELS = new Set([
   'open-tracker', 'open-tracker-settings', 'has-tracker-config',
   'set-theme',
   'minimize-window', 'maximize-window', 'close-window',
+  'ap-romstart-get', 'ap-romstart-set',
+  'check-for-update', 'open-release-page',
 ]);
 
 contextBridge.exposeInMainWorld('launcher', {
