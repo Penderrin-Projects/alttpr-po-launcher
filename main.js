@@ -563,20 +563,27 @@ ipcMain.handle('set-aspect-ratio', (event, ratio) => {
   if (win) win.setAspectRatio(ratio);
 });
 
-// Debug dumps go where they always went (next to the exe, or the project folder in
-// dev) under the same names. They just can't take real work down with them any more:
-// a failed dump inside captureExternalWindows() used to turn a good capture into
-// "0 windows", and one inside save-layout rejected the IPC call after the layout
-// had in fact been saved.
+// Debug dumps (capture-raw.txt, layout-debug.json, restore-debug.json, *-error.txt).
+//
+// They used to be written on every run next to process.execPath. In the portable build that
+// is the temp extraction folder, so nobody could find them anyway. They now go to
+// <userData>/logs, and only when asked for:
+//   - always when running from source (npm start), as before
+//   - in a packaged build when PO_LAUNCHER_DEBUG=1 is set, or "debugLogs": true is in
+//     po-launcher-settings.json
+// Writing them is best-effort and can never fail real work.
 function writeDebugFile(name, content) {
   try {
-    const base = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-    fs.writeFileSync(path.join(base, name), content, 'utf-8');
+    const enabled = !app.isPackaged || process.env.PO_LAUNCHER_DEBUG === '1' || loadSettings().debugLogs === true;
+    if (!enabled) return;
+    const dir = path.join(app.getPath('userData'), 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, name), content, 'utf-8');
   } catch {}
 }
 
 // ============================================================
-//  LAYOUT — PowerShell Window Capture & Restore
+//  LAYOUT — Window Capture & Restore (WinHelper.exe)
 // ============================================================
 
 // Names of external processes to capture.
@@ -595,9 +602,7 @@ function getExternalProcessNames(settings) {
 function captureExternalWindows() {
   const settings = loadSettings();
   const processNames = getExternalProcessNames(settings);
-  const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-
-  // Use compiled helper if available, fall back to PowerShell
+  // Use the WinHelper exe if one is available
   if (winHelperExePath && fs.existsSync(winHelperExePath)) {
     try {
       const result = execSync(
@@ -622,108 +627,11 @@ function captureExternalWindows() {
     }
   }
 
-  // Fallback: PowerShell (slow but works)
-  return captureExternalWindowsPS(processNames, debugBase);
+  // No helper available (no prebuilt exe and no csc.exe to build one). External windows
+  // are simply not captured; the launcher's own windows still are.
+  return [];
 }
 
-// PowerShell fallback for capture
-function captureExternalWindowsPS(processNames, debugBase) {
-  const namesList = processNames.map(n => `'${n}'`).join(',');
-  const script = [
-    '$ErrorActionPreference = "Stop"',
-    '',
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'using System.Text;',
-    'using System.Collections.Generic;',
-    'public class WinHelper {',
-    '    public delegate bool EnumWinProc(IntPtr h, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWinProc cb, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);',
-    '    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
-    '    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
-    '    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);',
-    '    [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT wp);',
-    '    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }',
-    '    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }',
-    '    [StructLayout(LayoutKind.Sequential)] public struct WINDOWPLACEMENT {',
-    '        public int length, flags, showCmd;',
-    '        public POINT minPos, maxPos;',
-    '        public RECT normalPos;',
-    '    }',
-    '}',
-    '"@',
-    '',
-    `$targetNames = @(${namesList})`,
-    '$pids = @{}',
-    'foreach ($n in $targetNames) {',
-    '    Get-Process -Name $n -ErrorAction SilentlyContinue | ForEach-Object { $pids[$_.Id] = $_.ProcessName }',
-    '}',
-    '',
-    '$allHandles = New-Object System.Collections.Generic.List[IntPtr]',
-    '$callback = [WinHelper+EnumWinProc]{',
-    '    param($h, $l)',
-    '    if ([WinHelper]::GetWindowTextLength($h) -gt 0) { $allHandles.Add($h) }',
-    '    return $true',
-    '}',
-    '[WinHelper]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null',
-    '',
-    '$results = @()',
-    'foreach ($h in $allHandles) {',
-    '    $wpid = [uint32]0',
-    '    [WinHelper]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null',
-    '    if ($pids.ContainsKey([int]$wpid)) {',
-    '        $sb = New-Object System.Text.StringBuilder 256',
-    '        [WinHelper]::GetWindowText($h, $sb, 256) | Out-Null',
-    '        $t = $sb.ToString()',
-    '        if ($t -eq "") { continue }',
-    '        $iconic = [WinHelper]::IsIconic($h)',
-    '        $wp = New-Object WinHelper+WINDOWPLACEMENT',
-    '        $wp.length = [System.Runtime.InteropServices.Marshal]::SizeOf($wp)',
-    '        [WinHelper]::GetWindowPlacement($h, [ref]$wp) | Out-Null',
-    '        $r = $wp.normalPos',
-    '        $results += [PSCustomObject]@{',
-    '            process = $pids[[int]$wpid]',
-    '            title = $t',
-    '            x = $r.L',
-    '            y = $r.T',
-    '            width = $r.R - $r.L',
-    '            height = $r.B - $r.T',
-    '            minimized = [bool]$iconic',
-    '        }',
-    '    }',
-    '}',
-    '',
-    'if ($results.Count -eq 0) { Write-Output "[]" }',
-    'elseif ($results.Count -eq 1) { Write-Output ("[" + ($results | ConvertTo-Json -Compress) + "]") }',
-    'else { Write-Output ($results | ConvertTo-Json -Compress) }',
-  ].join('\r\n');
-
-  try {
-    const tmpScript = path.join(app.getPath('temp'), 'po-launcher-capture.ps1');
-    fs.writeFileSync(tmpScript, script, { encoding: 'utf-8' });
-    const result = execSync(
-      `powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`,
-      { windowsHide: true, encoding: 'utf-8', timeout: 10000 }
-    ).trim();
-    writeDebugFile('capture-raw.txt', result);
-    if (!result || result === '[]') return [];
-    const parsed = JSON.parse(result);
-    const all = Array.isArray(parsed) ? parsed : [parsed];
-    const junkTitles = ['Default IME', 'MSCTFIME UI', 'GDI+ Window', 'NVOGLDC',
-                        '__wglDummyWindow', '.NET-BroadcastEvent'];
-    return all.filter(w => {
-      if (junkTitles.some(j => w.title.includes(j))) return false;
-      if (!w.minimized && (w.width < 50 || w.height < 50)) return false;
-      return true;
-    });
-  } catch (err) {
-    writeDebugFile('capture-error.txt',
-      `${err.message}\n\nSTDOUT: ${err.stdout || ''}\nSTDERR: ${err.stderr || ''}`);
-    return [];
-  }
-}
 
 // ============================================================
 //  IPC — Layout Save/Restore
@@ -774,7 +682,6 @@ function restoreLayout(layoutType) {
 
   // Poll for external windows and restore each as it appears
   if (layout.externalWindows && layout.externalWindows.length > 0) {
-    const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
     writeDebugFile('restore-debug.json', JSON.stringify(layout.externalWindows, null, 2));
     pollAndRestoreExternalWindows(layout.externalWindows);
   }
@@ -784,11 +691,12 @@ function restoreLayout(layoutType) {
 // The exe polls internally every 300ms until all windows found or 20s timeout.
 // Starts in ~100ms vs PowerShell's ~3s.
 function pollAndRestoreExternalWindows(targetWindows) {
-  const debugBase = app.isPackaged ? path.dirname(process.execPath) : __dirname;
-
   if (winHelperExePath && fs.existsSync(winHelperExePath)) {
     // Write target windows to JSON config file
     const configPath = path.join(app.getPath('temp'), 'po-launcher', 'restore-config.json');
+    // This folder used to exist as a side effect of compiling the helper into it. With a
+    // prebuilt helper nothing else creates it, so make sure it is there.
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify(targetWindows), { encoding: 'utf-8' });
 
     // Fire and forget — exe handles polling internally
@@ -799,91 +707,10 @@ function pollAndRestoreExternalWindows(targetWindows) {
     return;
   }
 
-  // Fallback: PowerShell single-script polling (slow startup but works)
-  pollAndRestoreExternalWindowsPS(targetWindows, debugBase);
+  // No helper available: external windows are left where they open.
 }
 
-// PowerShell fallback for restore polling
-function pollAndRestoreExternalWindowsPS(targetWindows, debugBase) {
-  const windowBlocks = targetWindows.map((w, i) => {
-    const safeTitle = w.title.replace(/'/g, "''");
-    const processName = w.process.replace(/'/g, "''");
-    const matchStr = safeTitle.substring(0, Math.min(safeTitle.length, 30)).replace(/'/g, "''");
-    const restoreAction = w.minimized
-      ? `[WinHelper]::ShowWindow($h, 6) | Out-Null`
-      : [
-          `[WinHelper]::ShowWindow($h, 9) | Out-Null`,
-          `[WinHelper]::MoveWindow($h, ${w.x}, ${w.y}, ${w.width}, ${w.height}, $true) | Out-Null`,
-        ].join('\r\n                ');
-    return [
-      `        if (-not $restored[${i}]) {`,
-      `            foreach ($h in $handles) {`,
-      `                $wpid = [uint32]0`,
-      `                [WinHelper]::GetWindowThreadProcessId($h, [ref]$wpid) | Out-Null`,
-      `                $proc = Get-Process -Id $wpid -ErrorAction SilentlyContinue`,
-      `                if ($proc -and $proc.ProcessName -eq '${processName}') {`,
-      `                    $sb = New-Object System.Text.StringBuilder 256`,
-      `                    [WinHelper]::GetWindowText($h, $sb, 256) | Out-Null`,
-      `                    $t = $sb.ToString()`,
-      `                    if ($t -like '*${matchStr}*') {`,
-      `                ${restoreAction}`,
-      `                        $restored[${i}] = $true`,
-      `                        $restoredCount++`,
-      `                        break`,
-      `                    }`,
-      `                }`,
-      `            }`,
-      `        }`,
-    ].join('\r\n');
-  });
 
-  const script = [
-    'Add-Type -TypeDefinition @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'using System.Text;',
-    'using System.Collections.Generic;',
-    'public class WinHelper {',
-    '    public delegate bool EnumWinProc(IntPtr h, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWinProc cb, IntPtr l);',
-    '    [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr h);',
-    '    [DllImport("user32.dll", CharSet=CharSet.Auto)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
-    '    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
-    '    [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool r);',
-    '    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);',
-    '}',
-    '"@',
-    '',
-    `$totalWindows = ${targetWindows.length}`,
-    '$restored = @(' + targetWindows.map(() => '$false').join(',') + ')',
-    '$restoredCount = 0',
-    '$startTime = Get-Date',
-    '',
-    'while ($restoredCount -lt $totalWindows -and ((Get-Date) - $startTime).TotalSeconds -lt 20) {',
-    '    $handles = New-Object System.Collections.Generic.List[IntPtr]',
-    '    $callback = [WinHelper+EnumWinProc]{',
-    '        param($h, $l)',
-    '        if ([WinHelper]::GetWindowTextLength($h) -gt 0) { $handles.Add($h) }',
-    '        return $true',
-    '    }',
-    '    [WinHelper]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null',
-    '',
-    ...windowBlocks,
-    '',
-    '    if ($restoredCount -lt $totalWindows) { Start-Sleep -Milliseconds 400 }',
-    '}',
-  ].join('\r\n');
-
-  try {
-    const tmpScript = path.join(app.getPath('temp'), 'po-launcher-restore.ps1');
-    fs.writeFileSync(tmpScript, script, { encoding: 'utf-8' });
-    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${tmpScript}"`, { windowsHide: true, timeout: 25000 });
-  } catch (err) {
-    writeDebugFile('restore-error.txt', err.message);
-  }
-}
-
-// Try to restore specific windows. Calls back with array of titles that were found and restored.
 // ============================================================
 //  Lua Console Helper
 // ============================================================
