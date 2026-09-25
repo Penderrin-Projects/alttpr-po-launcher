@@ -1,5 +1,5 @@
 /* ALTTPR PO Tracker - Custom Theme Override */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
 /* ===== THEME COLOR VARIABLES ===== */
 :root {
@@ -16,7 +16,7 @@
 
 /* ===== BASE RESET ===== */
 body {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-size: 13px !important;
   background-image: none !important;
   background-color: var(--theme-bg) !important;
@@ -80,7 +80,7 @@ div {
 
 /* ===== VERSION FOOTER ===== */
 .po-version-footer {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'IBM Plex Mono', Consolas, monospace;
   font-size: 10px;
   color: var(--theme-border);
   text-align: right;
@@ -110,7 +110,7 @@ div {
 /* ===== SECTION PANELS ===== */
 .preset-div {
   font-size: 13px !important;
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-variant: normal !important;
   background-color: var(--theme-panel) !important;
   color: #e6edf3 !important;
@@ -118,14 +118,14 @@ div {
   border-color: var(--theme-border) !important;
   border-width: 1px !important;
   border-style: solid !important;
-  border-radius: 8px !important;
+  border-radius: 4px !important;
   margin-bottom: 6px !important;
 }
 
 /* ===== SECTION HEADERS ===== */
 .preset-header,
 .preset-header-double {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-size: 13px !important;
   font-weight: 600 !important;
   color: #f0f6fc !important;
@@ -165,7 +165,7 @@ div {
 
 /* ===== BUTTONS ===== */
 .preset-btn {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-size: 12px !important;
   font-weight: 500 !important;
   background-color: var(--theme-border-light) !important;
@@ -174,7 +174,7 @@ div {
   min-width: 100px;
   padding: 5px 12px !important;
   border: 1px solid var(--theme-border) !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   cursor: pointer;
   transition: all 0.15s ease !important;
   text-transform: none !important;
@@ -213,12 +213,12 @@ label .tooltop-character {
 /* ===== DROPDOWNS ===== */
 .sprite-dropdown,
 select {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-size: 12px !important;
   background-color: var(--theme-input) !important;
   color: #c9d1d9 !important;
   border: 1px solid var(--theme-border) !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   padding: 4px 8px !important;
   width: 240px !important;
 }
@@ -226,18 +226,18 @@ select {
 select:focus {
   border-color: var(--accent-color) !important;
   outline: none !important;
-  box-shadow: 0 0 0 2px var(--accent-glow) !important;
+  box-shadow: none;
 }
 
 /* ===== TEXT INPUTS ===== */
 input[type="text"],
 input[type="number"] {
-  font-family: 'JetBrains Mono', monospace !important;
+  font-family: 'IBM Plex Mono', Consolas, monospace !important;
   font-size: 12px !important;
   background-color: var(--theme-input) !important;
   color: #c9d1d9 !important;
   border: 1px solid var(--theme-border) !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   padding: 4px 8px !important;
 }
 
@@ -245,7 +245,7 @@ input[type="text"]:focus,
 input[type="number"]:focus {
   border-color: var(--accent-color) !important;
   outline: none !important;
-  box-shadow: 0 0 0 2px var(--accent-glow) !important;
+  box-shadow: none;
 }
 
 /* ===== RADIO & CHECKBOX ===== */
@@ -291,12 +291,12 @@ input[type="range"] {
 
 /* ===== POWERTIP OVERRIDE ===== */
 #powerTip {
-  font-family: 'Outfit', sans-serif !important;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
   font-size: 12px !important;
   background-color: var(--theme-panel) !important;
   color: #c9d1d9 !important;
   border: 1px solid var(--theme-border) !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   padding: 8px 12px !important;
 }
 
@@ -435,7 +435,7 @@ input[type="range"] {
 .select2-container--default .select2-selection--single {
   background-color: var(--theme-input) !important;
   border-color: var(--theme-border) !important;
-  border-radius: 6px !important;
+  border-radius: 4px !important;
   color: #c9d1d9 !important;
 }
 
