@@ -368,12 +368,8 @@ settingsClose.addEventListener('click', () => {
 
 // --- Tracker Buttons ---
 btnLaunchTracker.addEventListener('click', async () => {
-  const result = await ipcRenderer.invoke('open-tracker');
-  if (result === 'needs-setup') {
-    setStatus('Set up your tracker preset, then click LAUNCH TRACKER in the config window', 'working');
-  } else {
-    setStatus('Tracker launched', 'success');
-  }
+  await ipcRenderer.invoke('open-tracker');
+  setStatus('Tracker launched', 'success');
 });
 
 btnTrackerSettings.addEventListener('click', () => {
@@ -622,15 +618,6 @@ playBtn.addEventListener('click', async () => {
     }
   }
 
-  if (chkTracker.checked) {
-    const hasConfig = await ipcRenderer.invoke('has-tracker-config');
-    if (!hasConfig) {
-      setStatus('First launch — set up your tracker preset, then click LAUNCH TRACKER', 'working');
-      await ipcRenderer.invoke('open-tracker-settings');
-      return;
-    }
-  }
-
   setStatus('Launching...', 'working');
   playBtn.disabled = true;
   playBtn.classList.remove('ready');
@@ -776,10 +763,10 @@ function guideRefresh() {
       ? `Found ${packs.length} pack${packs.length === 1 ? '' : 's'}.`
       : `No packs found in that folder (looked ${lastScan.depthReached || 0} level${lastScan.depthReached === 1 ? '' : 's'} deep). Each pack must be a folder with a .msu file in it.`;
   }
-  ipcRenderer.invoke('has-tracker-config').then((has) => {
-    const el = g('guide-tracker-status'); el.classList.toggle('good', has); el.classList.toggle('not-set', !has);
-    el.textContent = has ? 'Preset saved' : 'No preset yet';
-    if (guide.steps[guide.index] === 'done') renderGuideSummary(has);
+  ipcRenderer.invoke('tracker-preset-source').then((source) => {
+    const el = g('guide-tracker-status'); el.classList.add('good'); el.classList.remove('not-set');
+    el.textContent = source === 'custom' ? 'Your own preset' : 'Built-in preset';
+    if (guide.steps[guide.index] === 'done') renderGuideSummary(source);
   });
   if (guide.steps.includes('archipelago')) {
     ipcRenderer.invoke('ap-romstart-get').then((st) => {
@@ -790,7 +777,7 @@ function guideRefresh() {
   }
 }
 
-function renderGuideSummary(hasTracker) {
+function renderGuideSummary(trackerSource) {
   const ex = (guide.info && guide.info.exists) || {};
   const gone = (key, value) => (value && guide.mode === 'check' && ex[key] === false) ? `No longer found: ${value}` : null;
   const rows = [
@@ -800,7 +787,7 @@ function renderGuideSummary(hasTracker) {
     ['Timer', timerPath, 'skipped', gone('timerPath', timerPath)],
     ['Seeds folder', stagingFolder, 'not set', gone('stagingFolder', stagingFolder)],
     ['Music packs', packsFolder ? `${packsFolder} (${packs.length} pack${packs.length === 1 ? '' : 's'})` : null, 'original soundtrack'],
-    ['Tracker preset', hasTracker ? 'saved' : null, 'not saved yet'],
+    ['Tracker preset', trackerSource === 'custom' ? 'your own' : 'built-in default', 'built-in default'],
   ];
   if (guide.steps.includes('archipelago')) rows.push(['AP fix', g('guide-ap-fix').checked ? 'on' : null, 'off']);
   const box = g('guide-summary'); box.innerHTML = '';

@@ -159,11 +159,7 @@ function openTrackerWindow() {
   }
 
   const settings = loadSettings();
-  const query = settings.lastTrackerQuery;
-  if (!query) {
-    openSettingsWindow();
-    return 'needs-setup';
-  }
+  const query = getTrackerQuery();
 
   const bounds = getSafeTrackerBounds(settings.trackerBounds);
   const parsedDims = parseTrackerDims(query);
@@ -758,7 +754,16 @@ ipcMain.handle('open-release-page', () => { shell.openExternal(RELEASES_PAGE); }
 // ============================================================
 ipcMain.handle('open-tracker', () => openTrackerWindow());
 ipcMain.handle('open-tracker-settings', () => { openSettingsWindow(); });
-ipcMain.handle('has-tracker-config', () => !!loadSettings().lastTrackerQuery);
+// The tracker preset the launcher ships with. It is Anthony's own: standard open-mode
+// settings, autotracking through SNI on localhost:23074, Link sprite. A preset the user saves
+// from the tracker settings page (LAUNCH TRACKER) replaces it.
+const DEFAULT_TRACKER_QUERY = 'f=ONNNNNNNN0000NNNNNGC7C7RNN&d=VYNNOF00001&a=Y23074localhost&s=00000000000000000000000000&p=link';
+function getTrackerQuery() { return loadSettings().lastTrackerQuery || DEFAULT_TRACKER_QUERY; }
+
+// Always true now that a default exists; kept so older callers keep working.
+ipcMain.handle('has-tracker-config', () => true);
+// 'custom' when the user has saved their own preset, 'default' when the built-in one is in use.
+ipcMain.handle('tracker-preset-source', () => (loadSettings().lastTrackerQuery ? 'custom' : 'default'));
 
 // Theme propagation to all open tracker/settings windows
 ipcMain.handle('set-theme', (event, themeName) => {
