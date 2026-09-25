@@ -10,6 +10,12 @@ A portable Windows launcher for *A Link to the Past Randomizer* and Archipelago 
 4. Drop a `.sfc` or `.aplttp` on the window, or put it in the staging folder, pick a music pack, press **Play**.
 5. Arrange your windows, then **Save Layout** (there is one layout for `.sfc` and one for `.aplttp`).
 
+### Music packs
+
+A pack is any folder with a `.msu` file directly inside it. Point the launcher at the folder that holds your packs; it looks up to three levels down, so `MSU\Zelda\<pack>\` works, and packs found deeper are listed as `Zelda / Pack name`. Pointing it straight at one pack folder works too. Unreadable folders (a drive's recycle bin, say) are skipped and counted. A scan can be cancelled from the pack list; whatever was found so far stays.
+
+You don't need a pack at all: **Original soundtrack** is always the first entry, and the first-run screen can be skipped. A `.sfc` then plays from where it is; an `.aplttp` is opened in place and the launcher waits for the `.sfc` Archipelago writes next to it.
+
 The launcher tells you when a newer release exists. Set `"checkForUpdates": false` in `%APPDATA%\alttpr-po-launcher\po-launcher-settings.json` to turn that off.
 
 ### One-time setup on a fresh PC

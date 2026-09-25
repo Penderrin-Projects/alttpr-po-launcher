@@ -27,6 +27,7 @@
       Select the folder containing your MSU music pack subfolders.
     </div>
     <button class="setup-btn" id="setup-btn">Choose Folder</button>
+    <button class="setup-skip" id="setup-skip" title="You can pick a folder later with the 📁 button">Skip for now — play with the original soundtrack</button>
   </div>
 
   <!-- Main UI -->
@@ -56,6 +57,10 @@
           <button class="icon-btn" id="btn-refresh" title="Rescan packs">↻</button>
           <button class="icon-btn" id="btn-change-folder" title="Change packs folder">📁</button>
         </div>
+      </div>
+      <div class="scan-bar" id="scan-bar" style="display:none">
+        <span id="scan-text">Scanning…</span>
+        <button class="companion-browse" id="btn-cancel-scan" title="Stop scanning and keep what was found so far">Cancel</button>
       </div>
       <div class="pack-list" id="pack-list"></div>
       <div class="pack-count" id="pack-count"></div>

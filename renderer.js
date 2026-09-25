@@ -2,7 +2,10 @@
 // they forward to the narrow API exposed by launcher-preload.js.
 const ipcRenderer = {
   invoke: (channel, ...args) => window.launcher.invoke(channel, ...args),
-  on: (channel, callback) => { if (channel === 'tracker-configured') window.launcher.onTrackerConfigured(callback); },
+  on: (channel, callback) => {
+    if (channel === 'tracker-configured') window.launcher.onTrackerConfigured(callback);
+    if (channel === 'scan-progress') window.launcher.onScanProgress(callback);
+  },
 };
 const path = {
   // same result as Node's path.extname() for a bare file name
@@ -67,7 +70,11 @@ function buildThemeSwatches() {
 // --- State ---
 let packsFolder = null;
 let packs = [];
-let selectedPack = null;
+let selectedPack = null;              // null = original soundtrack (no music pack)
+let setupSkipped = false;             // first-run screen dismissed without choosing a folder
+let lastScan = null;                  // summary of the most recent pack scan
+let scanSlowTimer = null;
+let scanning = false;                 // a pack scan is in progress
 let romPath = null;
 let romFilename = null;
 let emulatorPath = null;
@@ -143,7 +150,7 @@ function updateLuaVisibility() {
 }
 
 function updatePlayState() {
-  const ready = romPath && selectedPack;
+  const ready = !!romPath;                       // a music pack is optional
   playBtn.disabled = !ready;
   if (ready) {
     playBtn.classList.add('ready');
@@ -199,6 +206,7 @@ async function persistSettings() {
   await ipcRenderer.invoke('save-settings', {
     packsFolder,
     lastPack: selectedPack ? selectedPack.name : null,
+    setupSkipped,
     emulatorPath,
     sniPath,
     luaScriptPath,
@@ -253,6 +261,37 @@ async function loadFromStaging() {
 // --- Pack List ---
 function renderPacks() {
   packListEl.innerHTML = '';
+
+  // Always-available first entry: play with the game's own music.
+  const none = document.createElement('div');
+  none.className = 'pack-item pack-item-none' + (selectedPack ? '' : ' selected');
+  const noneName = document.createElement('span');
+  noneName.className = 'pack-item-name';
+  noneName.textContent = 'Original soundtrack';
+  const noneMsu = document.createElement('span');
+  noneMsu.className = 'pack-item-msu';
+  noneMsu.textContent = 'no pack';
+  none.appendChild(noneName);
+  none.appendChild(noneMsu);
+  none.addEventListener('click', () => {
+    selectedPack = null;
+    renderPacks();
+    updatePlayState();
+    persistSettings();
+  });
+  packListEl.appendChild(none);
+
+  if (packs.length === 0 && packsFolder && lastScan && !scanning) {
+    const empty = document.createElement('div');
+    empty.className = 'pack-empty';
+    const deep = lastScan.depthReached ? `${lastScan.depthReached} level${lastScan.depthReached === 1 ? '' : 's'} deep` : 'the folder itself';
+    const skipped = lastScan.skipped ? `, ${lastScan.skipped} unreadable` : '';
+    empty.innerHTML = `<b>No music packs found</b> in ${escapeHtml(packsFolder)}<br>` +
+      `Looked ${deep} (${lastScan.folders} folder${lastScan.folders === 1 ? '' : 's'}${skipped}).<br>` +
+      `A pack is a folder with a <b>.msu</b> file in it — pick the folder that holds your pack folders, or play with the original soundtrack.`;
+    packListEl.appendChild(empty);
+  }
+
   for (const pack of packs) {
     const item = document.createElement('div');
     item.className = 'pack-item';
@@ -278,7 +317,14 @@ function renderPacks() {
 
     packListEl.appendChild(item);
   }
-  packCount.innerHTML = `<span>${packs.length}</span> pack${packs.length !== 1 ? 's' : ''} found`;
+  let note = '';
+  if (lastScan && lastScan.cancelled) note = ' — scan cancelled, showing what was found';
+  else if (lastScan && lastScan.skipped) note = ` — ${lastScan.skipped} folder${lastScan.skipped === 1 ? '' : 's'} skipped (unreadable)`;
+  packCount.innerHTML = `<span>${packs.length}</span> pack${packs.length !== 1 ? 's' : ''} found${escapeHtml(note)}`;
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // --- Settings Panel ---
@@ -347,6 +393,7 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
   displayPath(timerPathEl, timerPath);
   updateLuaVisibility();
 
+  setupSkipped = settings.setupSkipped === true;
   if (settings.packsFolder) {
     packsFolder = settings.packsFolder;
     setupOverlay.classList.add('hidden');
@@ -357,6 +404,9 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
       const sel = packListEl.querySelector('.selected');
       if (sel) sel.scrollIntoView({ block: 'center' });
     }
+  } else if (setupSkipped) {
+    setupOverlay.classList.add('hidden');
+    renderPacks();
   }
 
   updatePlayState();
@@ -373,6 +423,15 @@ setupBtn.addEventListener('click', async () => {
   }
 });
 
+document.getElementById('setup-skip').addEventListener('click', async () => {
+  setupSkipped = true;
+  setupOverlay.classList.add('hidden');
+  await persistSettings();
+  renderPacks();
+  updatePlayState();
+  setStatus('Playing with the original soundtrack — pick a packs folder any time with 📁', 'success');
+});
+
 btnChangeFolder.addEventListener('click', async () => {
   const folder = await ipcRenderer.invoke('pick-folder');
   if (folder) {
@@ -384,8 +443,38 @@ btnChangeFolder.addEventListener('click', async () => {
   }
 });
 
+const scanBar = document.getElementById('scan-bar');
+const scanText = document.getElementById('scan-text');
+const btnCancelScan = document.getElementById('btn-cancel-scan');
+
+function showScanning(folders) {
+  scanBar.style.display = '';
+  scanText.textContent = folders ? `Scanning… ${folders} folders` : 'Scanning…';
+}
+
+ipcRenderer.on('scan-progress', (folders) => { if (scanning) showScanning(folders); });
+
+btnCancelScan.addEventListener('click', () => {
+  scanText.textContent = 'Stopping…';
+  ipcRenderer.invoke('cancel-scan');
+});
+
 async function scanPacks() {
-  packs = await ipcRenderer.invoke('scan-packs', packsFolder);
+  if (!packsFolder) { packs = []; lastScan = null; renderPacks(); updatePlayState(); return; }
+  scanning = true;
+  scanBar.classList.remove('slow');
+  showScanning(0);
+  // After a few seconds the scan is taking longer than a normal library would — make the
+  // Cancel option obvious. The scan itself keeps going until the user stops it.
+  clearTimeout(scanSlowTimer);
+  scanSlowTimer = setTimeout(() => { if (scanning) { scanBar.classList.add('slow'); scanText.textContent += ' — this is taking a while, you can cancel'; } }, 6000);
+  const result = await ipcRenderer.invoke('scan-packs', packsFolder);
+  clearTimeout(scanSlowTimer);
+  scanning = false;
+  scanBar.style.display = 'none';
+  lastScan = result;
+  packs = result.packs || [];
+  if (selectedPack && !packs.find(p => p.name === selectedPack.name)) selectedPack = null;
   renderPacks();
   updatePlayState();
 }
@@ -484,7 +573,7 @@ dropZone.addEventListener('click', () => {
 
 // --- Play ---
 playBtn.addEventListener('click', async () => {
-  if (!romPath || !selectedPack) return;
+  if (!romPath) return;
 
   const isAplttp = romPath.toLowerCase().endsWith('.aplttp');
 
@@ -533,6 +622,7 @@ playBtn.addEventListener('click', async () => {
     // ROM was launched from inside the pack folder and now carries the pack's name
     if (result.romMovedTo) romPath = result.romMovedTo;
     let msg = isAplttp ? 'Archipelago launched!' : 'Game launched!';
+    if (!result.usedPack) msg += ' (original soundtrack)';
     if (result.apRomStartOn) msg += ' (Archipelago rom_start is ON — see AP fix in settings)';
     if (result.alreadyRunning && result.alreadyRunning.length > 0) {
       msg += ` (${result.alreadyRunning.join(' & ')} already running)`;
