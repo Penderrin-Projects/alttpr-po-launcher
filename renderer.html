@@ -20,12 +20,95 @@
   </div>
 
   <!-- First run -->
-  <div class="setup-overlay" id="setup-overlay">
-    <div class="setup-mark"><svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></div>
-    <div class="setup-title">Where are your music packs?</div>
-    <div class="setup-desc">Pick the folder that holds your MSU-1 pack folders. Each pack is a folder with a <b>.msu</b> file in it; the launcher looks up to three folders deep.</div>
-    <button class="btn primary" id="setup-btn">Choose folder</button>
-    <button class="setup-skip" id="setup-skip">Skip for now — play with the original soundtrack</button>
+  <!-- Setup guide: shown on the first launch of each version, and from Settings -> Setup guide -->
+  <div class="guide" id="guide" hidden>
+    <div class="guide-head">
+      <span class="guide-count" id="guide-count"></span>
+      <span class="guide-title" id="guide-title"></span>
+    </div>
+    <div class="guide-body" id="guide-body">
+
+      <section class="guide-step" data-step="welcome">
+        <p id="guide-welcome-setup">This guide takes about two minutes. It goes through each thing the launcher works with, in the order you'll use them. Every step can be skipped and finished later from <b>Settings → Setup guide</b>.</p>
+        <p id="guide-welcome-check" hidden>You already have a setup from an earlier version. This is a quick check that everything is still where it was; anything that has moved is marked.</p>
+        <p class="guide-muted">You'll want to have installed: <b>BizHawk</b> (the emulator) and <b>SNI</b> (it comes with Archipelago and connects the tracker to the game). Optional: <b>LiveSplit</b>, <b>MSU-1 music packs</b>, and <b>Archipelago</b> if you play multiworld.</p>
+        <button class="btn" id="guide-finish-early" hidden>Everything looks right — finish now</button>
+      </section>
+
+      <section class="guide-step" data-step="emulator">
+        <p>BizHawk is the emulator the launcher starts. Point it at <b>EmuHawk.exe</b>, the file that opens BizHawk. It lives wherever you unzipped BizHawk, in a folder named like <span class="mono">BizHawk-2.x-win-x64</span>.</p>
+        <div class="guide-row"><span class="path not-set" id="guide-emulator-path">Not set</span><button class="btn small" id="guide-browse-emulator">Browse</button></div>
+        <div class="guide-note"><b>One setting inside BizHawk matters:</b> Config → Customize → tick <b>Save Window Position</b>. The launcher never moves BizHawk's main window itself; with that ticked, BizHawk goes back where you left it.</div>
+        <div id="guide-lua-block">
+          <p><b>Lua connector.</b> Connector.lua is a small script that lets the tracker and Archipelago follow your game. It ships with SNI.</p>
+          <div class="guide-row"><span class="path not-set" id="guide-lua-path">Not found</span><button class="btn small" id="guide-browse-lua">Browse</button></div>
+        </div>
+      </section>
+
+      <section class="guide-step" data-step="sni">
+        <p>SNI is a small program that connects the tracker (and Archipelago) to the running game. It is installed with Archipelago and normally sits at <span class="mono">C:\ProgramData\Archipelago\SNI\sni.exe</span>.</p>
+        <div class="guide-row"><span class="path not-set" id="guide-sni-path">Not set</span><button class="btn small" id="guide-browse-sni">Browse</button></div>
+        <div class="guide-note">SNI opens a console window while it runs. SNI has its own option to hide that window; the launcher doesn't control it.</div>
+      </section>
+
+      <section class="guide-step" data-step="timer">
+        <p><b>Optional.</b> If you use LiveSplit, point the launcher at <b>LiveSplit.exe</b>. It will open with the game and be put back in place with your saved layout.</p>
+        <div class="guide-row"><span class="path not-set" id="guide-timer-path">Not set</span><button class="btn small" id="guide-browse-timer">Browse</button></div>
+        <p class="guide-muted">Don't use a timer? Skip this step.</p>
+      </section>
+
+      <section class="guide-step" data-step="seeds">
+        <p>The <b>seeds folder</b> is where your downloaded seeds arrive. For most people that's <b>Downloads</b>. The launcher watches it and picks up the newest <span class="mono">.sfc</span> or <span class="mono">.aplttp</span> automatically each time it starts.</p>
+        <div class="guide-row"><span class="path not-set" id="guide-staging-path">Not set</span><button class="btn small" id="guide-use-downloads">Use Downloads</button><button class="btn small" id="guide-browse-staging">Browse</button></div>
+        <p class="guide-muted">You can also drop a seed file straight onto the main window at any time.</p>
+      </section>
+
+      <section class="guide-step" data-step="packs">
+        <p><b>Optional.</b> MSU-1 packs replace the game's music. Pick the folder that holds your packs: each pack is its own folder with a <span class="mono">.msu</span> file inside, and the launcher looks up to three folders deep, so a folder of folders is fine.</p>
+        <div class="guide-row"><span class="path not-set" id="guide-packs-path">Not set</span><button class="btn small" id="guide-browse-packs">Choose folder</button></div>
+        <p class="guide-muted" id="guide-packs-result">No music packs? Skip this step — you'll play with the original soundtrack, and can add packs later.</p>
+      </section>
+
+      <section class="guide-step" data-step="archipelago">
+        <p>Archipelago is installed. For multiworld seeds (<span class="mono">.aplttp</span>) the launcher starts the emulator itself. If Archipelago's own <b>start ROM</b> setting is also on, the emulator opens twice.</p>
+        <label class="check guide-check" for="guide-ap-fix"><input type="checkbox" id="guide-ap-fix"><span>Let the launcher start the ROM (AP fix)</span></label>
+        <p class="guide-muted" id="guide-ap-status"></p>
+        <div class="guide-note">This sets <span class="mono">snes_rom_start</span> and <span class="mono">rom_start</span> to false in Archipelago's host.yaml. A backup of the original is kept next to it, and unticking puts the old values back.</div>
+      </section>
+
+      <section class="guide-step" data-step="tracker">
+        <p>The tracker shows your items and dungeons and follows the game through SNI. It needs a <b>preset</b> once:</p>
+        <ol class="guide-list">
+          <li>Click <b>Open tracker settings</b> below.</li>
+          <li>In the window that opens, choose your settings: game mode, goal, dungeon items, and so on.</li>
+          <li>Press <b>LAUNCH TRACKER</b> at the bottom of that window. That saves the preset.</li>
+        </ol>
+        <div class="guide-row"><span class="path not-set" id="guide-tracker-status">No preset yet</span><button class="btn small" id="guide-open-tracker-settings">Open tracker settings</button></div>
+        <p class="guide-muted">Play a different mode later? Open tracker settings again and press LAUNCH TRACKER to save a new preset.</p>
+      </section>
+
+      <section class="guide-step" data-step="layout">
+        <p>Nothing to set here; this is just so you know how layouts work.</p>
+        <ol class="guide-list">
+          <li>Launch a seed once. BizHawk, the Lua console, the tracker and the timer open.</li>
+          <li>Drag each window where you want it.</li>
+          <li>Click <b>Save layout</b> on the main screen. From then on, every launch puts the windows back there.</li>
+        </ol>
+        <p class="guide-muted">There are two layouts: one for normal seeds (<span class="mono">.sfc</span>) and one for Archipelago seeds (<span class="mono">.aplttp</span>). Save each once.</p>
+      </section>
+
+      <section class="guide-step" data-step="done">
+        <p>Here's what's set. Anything you skipped can be added in <b>Settings</b>, and this guide is always available there.</p>
+        <div class="guide-summary" id="guide-summary"></div>
+      </section>
+
+    </div>
+    <div class="guide-foot">
+      <button class="btn small" id="guide-back">Back</button>
+      <span class="guide-spacer"></span>
+      <button class="btn small" id="guide-skip">Skip this step</button>
+      <button class="btn primary" id="guide-next">Next</button>
+    </div>
   </div>
 
   <!-- ROM -->
@@ -110,6 +193,11 @@
     <div class="setting-row theme-row">
       <span class="setting-name">Accent</span>
       <div class="theme-swatches" id="theme-swatches"></div>
+    </div>
+    <div class="setting-row">
+      <span class="setting-name">Setup</span>
+      <span class="path not-set">Walk through emulator, SNI, packs and the tracker again</span>
+      <button class="btn small" id="btn-run-guide">Setup guide</button>
     </div>
 
     <div class="settings-group">Companion paths</div>

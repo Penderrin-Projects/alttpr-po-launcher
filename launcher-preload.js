@@ -19,6 +19,7 @@ const INVOKE_CHANNELS = new Set([
   'minimize-window', 'maximize-window', 'close-window',
   'ap-romstart-get', 'ap-romstart-set',
   'check-for-update', 'open-release-page',
+  'guide-info',
 ]);
 
 contextBridge.exposeInMainWorld('launcher', {
