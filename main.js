@@ -364,7 +364,7 @@ function compileWindowHelper() {
   if (!fs.existsSync(helperDir)) fs.mkdirSync(helperDir, { recursive: true });
   winHelperExePath = path.join(helperDir, 'WinHelper.exe');
 
-  const HELPER_VERSION = '23';
+  const HELPER_VERSION = '24';
   const versionFile = path.join(helperDir, 'version.txt');
 
   // Reuse if already compiled at current version
@@ -906,7 +906,20 @@ ipcMain.handle('save-layout', (_e, layoutType) => {
   return { saved: true, windowCount: count };
 });
 
-function restoreLayout(layoutType) {
+// skipProcesses: process names (exe name without .exe) whose windows should not be restored
+// this time, e.g. a timer the user has unticked. Without this the helper would spend its
+// 20 seconds waiting for a window that is never going to appear.
+// Process names of the companions NOT being started on this launch.
+function skippedCompanions({ launchEmulator, emulatorPath, launchSni, sniPath, launchTimer, timerPath }) {
+  const out = [];
+  const nameOf = (p) => (p ? path.parse(p).name : null);
+  if (!launchEmulator && nameOf(emulatorPath)) out.push(nameOf(emulatorPath));
+  if (!launchSni && nameOf(sniPath)) out.push(nameOf(sniPath));
+  if (!launchTimer && nameOf(timerPath)) out.push(nameOf(timerPath));
+  return out;
+}
+
+function restoreLayout(layoutType, skipProcesses = []) {
   const settings = loadSettings();
   const key = layoutType === 'aplttp' ? 'layoutAplttp' : 'layoutSfc';
   const layout = settings[key];
@@ -922,9 +935,11 @@ function restoreLayout(layoutType) {
   }
 
   // Poll for external windows and restore each as it appears
-  if (layout.externalWindows && layout.externalWindows.length > 0) {
-    writeDebugFile('restore-debug.json', JSON.stringify(layout.externalWindows, null, 2));
-    pollAndRestoreExternalWindows(layout.externalWindows);
+  const skip = new Set(skipProcesses.map(p => p.toLowerCase()));
+  const wanted = (layout.externalWindows || []).filter(w => !skip.has(String(w.process).toLowerCase()));
+  if (wanted.length > 0) {
+    writeDebugFile('restore-debug.json', JSON.stringify(wanted, null, 2));
+    pollAndRestoreExternalWindows(wanted);
   }
 }
 
@@ -1171,7 +1186,7 @@ ipcMain.handle('launch-rom', async (_e, {
       }
 
       // Start layout restore
-      restoreLayout('aplttp');
+      restoreLayout('aplttp', skippedCompanions({ launchEmulator, emulatorPath, launchSni, sniPath, launchTimer, timerPath }));
 
       // Launch emulator with the generated SFC
       if (launchEmulator && emulatorPath) {
@@ -1199,7 +1214,7 @@ ipcMain.handle('launch-rom', async (_e, {
       // Start layout restore polling BEFORE launching emulator
       // so it's ready to catch windows the instant they appear
       const layoutType = isArchipelago ? 'aplttp' : 'sfc';
-      restoreLayout(layoutType);
+      restoreLayout(layoutType, skippedCompanions({ launchEmulator, emulatorPath, launchSni, sniPath, launchTimer, timerPath }));
 
       // Launch emulator
       if (launchEmulator && emulatorPath) {
