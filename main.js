@@ -528,23 +528,77 @@ ipcMain.handle('pick-exe', async (_e, title) => {
 // ============================================================
 //  IPC — Pack Scanning
 // ============================================================
-ipcMain.handle('scan-packs', (_e, parentDir) => {
-  const packs = [];
-  try {
-    const entries = fs.readdirSync(parentDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const subPath = path.join(parentDir, entry.name);
-      const files = fs.readdirSync(subPath);
-      const msuFile = files.find(f => f.toLowerCase().endsWith('.msu'));
-      if (msuFile) {
-        packs.push({ name: entry.name, path: subPath, msuBase: path.parse(msuFile).name });
+// ============================================================
+//  IPC — Music Pack Scan
+// ============================================================
+// A pack is any folder that directly contains a .msu file. Starting from the folder the user
+// picked, the scan looks up to SCAN_MAX_DEPTH levels down, so a library laid out as
+// MSU\Zelda\<pack>\ still works, and if the picked folder itself holds a .msu it is offered as
+// a pack (someone pointed at one pack instead of the folder above it). Unreadable folders are
+// skipped and counted, never fatal; junctions and symlinks to folders are followed.
+//
+// The scan is asynchronous: it yields between folders, sends 'scan-progress' counts to the
+// window, and stops early when the UI sends 'cancel-scan' or asks for a newer scan.
+//
+// Result: { packs, folders, skipped, cancelled, depthReached, ms }
+//   packs[].name is the pack folder's path below the picked folder joined with " / ", so packs
+//   at different depths cannot collide. Level-1 packs keep their bare folder name, which is
+//   what the saved lastPack setting already holds.
+const SCAN_MAX_DEPTH = 3;
+const SCAN_SKIP_NAMES = new Set(['$recycle.bin', 'system volume information', 'node_modules', '.git']);
+let scanGeneration = 0;
+
+async function scanPacksFolder(rootDir, { isCancelled = () => false, onProgress = () => {} } = {}) {
+  const t0 = Date.now();
+  const result = { packs: [], folders: 0, skipped: 0, cancelled: false, depthReached: 0, ms: 0 };
+  const done = () => { result.ms = Date.now() - t0; result.packs.sort((x, y) => x.name.localeCompare(y.name)); return result; };
+
+  // List one folder; record it as a pack if a .msu sits directly inside. null = unreadable.
+  const listFolder = async (dir, name) => {
+    let entries;
+    try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+    catch { result.skipped++; return null; }
+    result.folders++;
+    const msu = entries.find(e => !e.isDirectory() && e.name.toLowerCase().endsWith('.msu'));
+    if (msu) result.packs.push({ name, path: dir, msuBase: path.parse(msu.name).name });
+    return entries;
+  };
+
+  const rootEntries = await listFolder(rootDir, path.basename(rootDir) || rootDir);
+  if (!rootEntries) return done();
+
+  let frontier = [{ dir: rootDir, entries: rootEntries, rel: [] }];
+  for (let depth = 1; depth <= SCAN_MAX_DEPTH && frontier.length; depth++) {
+    const next = [];
+    for (const { dir, entries, rel } of frontier) {
+      for (const entry of entries) {
+        if (isCancelled()) { result.cancelled = true; return done(); }
+        if (SCAN_SKIP_NAMES.has(entry.name.toLowerCase())) { result.skipped++; continue; }
+        const sub = path.join(dir, entry.name);
+        let isDir = entry.isDirectory();
+        if (!isDir && entry.isSymbolicLink()) {
+          try { isDir = (await fs.promises.stat(sub)).isDirectory(); } catch { result.skipped++; continue; }
+        }
+        if (!isDir) continue;
+        const relNames = [...rel, entry.name];
+        const subEntries = await listFolder(sub, relNames.join(' / '));
+        if (subEntries) { result.depthReached = depth; next.push({ dir: sub, entries: subEntries, rel: relNames }); }
+        if (result.folders % 25 === 0) onProgress(result.folders);
       }
     }
-  } catch (err) { console.error('Scan error:', err); }
-  packs.sort((a, b) => a.name.localeCompare(b.name));
-  return packs;
+    frontier = next;
+  }
+  return done();
+}
+
+ipcMain.handle('scan-packs', async (event, parentDir) => {
+  const gen = ++scanGeneration;                         // a newer scan or cancel-scan bumps this
+  const sender = event && event.sender;
+  const onProgress = (n) => { try { if (sender && !sender.isDestroyed()) sender.send('scan-progress', n); } catch {} };
+  return scanPacksFolder(parentDir, { isCancelled: () => scanGeneration !== gen, onProgress });
 });
+
+ipcMain.handle('cancel-scan', () => { scanGeneration++; });
 
 // ============================================================
 //  IPC — ROM Staging Folder
@@ -974,7 +1028,10 @@ function stageRom(romPath, pack) {
 //   - for 4 polls in a row (1s) for anything else. An unusual ROM is only ever delayed,
 //     never refused, so this can't turn a working launch into a timeout.
 // Resolves with the full path, or null on timeout.
-function waitForGeneratedSfc(packDir, timeoutMs = 60000, pollMs = 250) {
+// expectName (optional): only accept this exact file name (case-insensitive), used when the
+// .aplttp is opened where it lies and the folder may hold unrelated .sfc files.
+function waitForGeneratedSfc(packDir, timeoutMs = 60000, pollMs = 250, expectName = null) {
+  const want = expectName ? expectName.toLowerCase() : null;
   const looksLikeWholeRom = (size) => {
     const body = size % 0x8000 === 512 ? size - 512 : size;
     return body >= 0x80000 && body % 0x8000 === 0;
@@ -986,7 +1043,7 @@ function waitForGeneratedSfc(packDir, timeoutMs = 60000, pollMs = 250) {
     let stablePolls = 0;
     const interval = setInterval(() => {
       try {
-        const sfc = fs.readdirSync(packDir).find(f => f.toLowerCase().endsWith('.sfc'));
+        const sfc = fs.readdirSync(packDir).find(f => want ? f.toLowerCase() === want : f.toLowerCase().endsWith('.sfc'));
         if (sfc) {
           const size = fs.statSync(path.join(packDir, sfc)).size;
           stablePolls = (size > 0 && sfc === lastName && size === lastSize) ? stablePolls + 1 : 0;
@@ -1022,12 +1079,13 @@ ipcMain.handle('launch-rom', async (_e, {
     const romExt = path.extname(romPath).toLowerCase();
     const isArchipelago = romExt === '.aplttp';
 
-    // Copy ROM into the pack folder (copy first, then clean old ROMs — see stageRom)
-    const destRom = stageRom(romPath, pack);
+    // With a pack: copy the ROM into the pack folder under the pack's name (copy first, then
+    // clean old ROMs — see stageRom). Without one: play the ROM where it is, original soundtrack.
+    const destRom = pack ? stageRom(romPath, pack) : romPath;
 
     // If the ROM was launched from inside the pack folder, its old name is gone now;
     // the renderer needs the new path or the next Play would fail with "file not found".
-    const romMovedTo = fs.existsSync(romPath) ? null : destRom;
+    const romMovedTo = pack && !fs.existsSync(romPath) ? destRom : null;
 
     // Companions we found already running and therefore did not start again
     const alreadyRunning = [];
@@ -1050,8 +1108,12 @@ ipcMain.handle('launch-rom', async (_e, {
         if (launchAppOnce(timerPath)) alreadyRunning.push('Timer');
       }
 
-      // Poll for the generated .sfc file (Archipelago creates it) — 60 second timeout
-      const generatedSfc = await waitForGeneratedSfc(pack.path);
+      // Poll for the generated .sfc file (Archipelago creates it next to the .aplttp) — 60s timeout.
+      // In a pack folder it is the only .sfc there; without a pack the folder may hold other
+      // ROMs, so wait for the one named after the .aplttp.
+      const generatedSfc = pack
+        ? await waitForGeneratedSfc(pack.path)
+        : await waitForGeneratedSfc(path.dirname(destRom), 60000, 250, path.parse(destRom).name + '.sfc');
 
       if (!generatedSfc) {
         return { success: false, error: 'Timeout waiting for Archipelago to generate .sfc' };
@@ -1107,7 +1169,7 @@ ipcMain.handle('launch-rom', async (_e, {
     }
 
     const apRomStartOn = isArchipelago && readApRomStart().on;
-    return { success: true, trackerResult, romMovedTo, alreadyRunning, apRomStartOn };
+    return { success: true, trackerResult, romMovedTo, alreadyRunning, apRomStartOn, usedPack: !!pack };
   } catch (err) {
     return { success: false, error: err.message };
   }

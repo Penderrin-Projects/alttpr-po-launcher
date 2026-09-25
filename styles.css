@@ -320,3 +320,13 @@ body {
 .update-banner span { flex: 1; }
 #ap-romstart-status.warn { color: var(--red); }
 #ap-romstart-status.good { color: var(--green); }
+
+/* Music pack scan */
+.setup-skip { margin-top: 10px; background: none; border: none; color: var(--text-muted); font-size: 10px; cursor: pointer; text-decoration: underline; }
+.setup-skip:hover { color: var(--text-primary); }
+.scan-bar { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 10px; color: var(--text-primary); background: var(--accent-glow); border: 1px solid var(--theme-border-light); border-radius: 6px; }
+.scan-bar span { flex: 1; }
+.scan-bar.slow { border-color: var(--red); }
+.pack-item-none .pack-item-name { font-style: italic; }
+.pack-empty { padding: 10px 8px; font-size: 10px; color: var(--text-muted); line-height: 1.5; }
+.pack-empty b { color: var(--text-primary); font-weight: 600; }
