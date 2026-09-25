@@ -1,6 +1,6 @@
 {
   "name": "alttpr-po-launcher",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "ALTTPR PO Launcher - Launcher, Tracker & Music Pack Manager",
   "main": "main.js",
   "scripts": {
@@ -24,6 +24,7 @@
       "icon.ico",
       "icon.png",
       "native/WinHelper.cs",
+      "fonts/**/*",
       "tracker/**/*"
     ],
     "win": {

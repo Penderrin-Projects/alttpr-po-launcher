@@ -236,6 +236,7 @@ async function persistSettings() {
     timerPath,
     timerEnabled: chkTimer.checked,
     theme: currentTheme,
+    accent: currentTheme,
   });
 }
 
@@ -401,7 +402,11 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
   const settings = await ipcRenderer.invoke('load-settings');
 
   // Apply theme first so UI renders with correct colors
-  currentTheme = LEGACY_THEMES[settings.theme] || (poThemes[settings.theme] ? settings.theme : 'amber');
+  // 'accent' is the colour chosen in 2.3.0 or later. 'theme' alone is a pre-2.3.0 save, whose
+  // names are mapped (the old default 'blue' becomes amber, so nobody is stuck on old-blue).
+  // Both palettes have a 'blue', which is why the two must never share one key.
+  currentTheme = poThemes[settings.accent] ? settings.accent
+    : (LEGACY_THEMES[settings.theme] || (poThemes[settings.theme] ? settings.theme : 'amber'));
   buildThemeSwatches();
   applyTheme(currentTheme);
 
