@@ -16,6 +16,7 @@ class WinHelper {
     [DllImport("user32.dll")] static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool r);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+    [DllImport("user32.dll")] static extern bool IsWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT wp);
 
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
@@ -98,8 +99,14 @@ class WinHelper {
         int restoredCount = 0;
         // Track which handles we've already matched so we don't double-match
         var matchedHandles = new HashSet<IntPtr>();
+        // Windows we have placed and are still watching (see Settle). Some programs set their
+        // own position/size a moment after their window appears - a timer loading its layout,
+        // for example - which used to undo the restore. Nothing here is specific to any app.
+        var settling = new List<Settling>();
         var start = DateTime.Now;
-        while (restoredCount < targets.Count && (DateTime.Now - start).TotalSeconds < 20) {
+        while ((restoredCount < targets.Count || settling.Count > 0) && (DateTime.Now - start).TotalSeconds < 20) {
+            Settle(settling);
+            if (restoredCount >= targets.Count) { Thread.Sleep(SETTLE_POLL_MS); continue; }
             var handles = GetAllHandles();
             var pids = GetTargetPids(GetAllProcessNames(targets));
 
@@ -115,6 +122,10 @@ class WinHelper {
                 } else {
                     matchStr = t.title.Length > 30 ? t.title.Substring(0, 30) : t.title;
                 }
+                // A short saved title can be a substring of one of the app's hidden helper
+                // windows ("LiveSplit" inside "GDI+ Window (LiveSplit.exe)"), so junk windows
+                // are skipped here too and an exact title match beats a substring match.
+                IntPtr exact = IntPtr.Zero, partial = IntPtr.Zero;
                 foreach (var h in handles) {
                     if (matchedHandles.Contains(h)) continue;
                     uint wpid; GetWindowThreadProcessId(h, out wpid);
@@ -122,16 +133,20 @@ class WinHelper {
                     if (!pids.TryGetValue((int)wpid, out pname)) continue;
                     if (pname != t.process) continue;
                     var title = GetTitle(h);
-                    if (title.IndexOf(matchStr) >= 0) {
-                        // Extra check: if we're matching "- BizHawk" (main window), 
-                        // exclude Lua Console which is also under EmuHawk process
-                        if (matchStr == "- BizHawk" && title.Contains("Lua Console")) continue;
-                        ApplyRestore(h, t);
-                        restored[i] = true;
-                        matchedHandles.Add(h);
-                        restoredCount++;
-                        break;
-                    }
+                    if (IsJunkTitle(title)) continue;
+                    // Extra check: if we're matching "- BizHawk" (main window),
+                    // exclude Lua Console which is also under EmuHawk process
+                    if (matchStr == "- BizHawk" && title.Contains("Lua Console")) continue;
+                    if (title == t.title) { exact = h; break; }
+                    if (partial == IntPtr.Zero && title.IndexOf(matchStr) >= 0) partial = h;
+                }
+                var hit = exact != IntPtr.Zero ? exact : partial;
+                if (hit != IntPtr.Zero) {
+                    ApplyRestore(hit, t);
+                    if (WantsSettle(t)) settling.Add(new Settling { h = hit, t = t, placedAt = DateTime.Now });
+                    restored[i] = true;
+                    matchedHandles.Add(hit);
+                    restoredCount++;
                 }
             }
 
@@ -149,9 +164,7 @@ class WinHelper {
                     var title = GetTitle(h);
                     // Must have a title and not be a junk window
                     if (string.IsNullOrEmpty(title)) continue;
-                    if (title.Contains("Default IME") || title.Contains("MSCTFIME") ||
-                        title.Contains("GDI+ Window") || title.Contains("NVOGLDC") ||
-                        title.Contains("__wglDummy") || title.Contains(".NET-Broadcast")) continue;
+                    if (IsJunkTitle(title)) continue;
                     // Skip tiny windows
                     var wp2 = new WINDOWPLACEMENT(); wp2.length = Marshal.SizeOf(wp2);
                     GetWindowPlacement(h, ref wp2);
@@ -159,6 +172,7 @@ class WinHelper {
                     if ((r2.R - r2.L) < 50 && (r2.B - r2.T) < 50 && !IsIconic(h)) continue;
 
                     ApplyRestore(h, t);
+                    if (WantsSettle(t)) settling.Add(new Settling { h = h, t = t, placedAt = DateTime.Now });
                     restored[i] = true;
                     matchedHandles.Add(h);
                     restoredCount++;
@@ -171,7 +185,43 @@ class WinHelper {
                 bool anyMinimized = false;
                 for (int i = 0; i < targets.Count; i++)
                     if (!restored[i] && targets[i].minimized) { anyMinimized = true; break; }
-                Thread.Sleep(anyMinimized ? 50 : 200);
+                Thread.Sleep(settling.Count > 0 ? SETTLE_POLL_MS : (anyMinimized ? 50 : 200));
+            }
+        }
+    }
+
+    // ---- Settle: keep a placed window where the layout says for a few seconds ----
+    const int SETTLE_SECONDS = 3;      // how long after placing a window we keep watching it
+    const int SETTLE_POLL_MS = 100;    // how often we look while anything is settling
+    const int SETTLE_MAX_REAPPLY = 20; // a window that keeps fighting back is left alone after this
+
+    class Settling { public IntPtr h; public WinInfo t; public DateTime placedAt; public int reapplied; }
+
+    // Only windows we position ourselves. BizHawk's main window is never touched (it manages its
+    // own position; moving it during form init crashed its splitter) and minimized targets are
+    // just minimized, so neither is watched.
+    // Hidden helper windows every process drags around; never something a layout should restore.
+    static bool IsJunkTitle(string title) {
+        return title.Contains("Default IME") || title.Contains("MSCTFIME") ||
+               title.Contains("GDI+ Window") || title.Contains("NVOGLDC") ||
+               title.Contains("__wglDummy") || title.Contains(".NET-Broadcast");
+    }
+
+    static bool WantsSettle(WinInfo t) {
+        return !t.minimized && t.process != "EmuHawk";
+    }
+
+    static void Settle(List<Settling> settling) {
+        for (int i = settling.Count - 1; i >= 0; i--) {
+            var s = settling[i];
+            bool expired = (DateTime.Now - s.placedAt).TotalSeconds >= SETTLE_SECONDS;
+            if (expired || s.reapplied >= SETTLE_MAX_REAPPLY || !IsWindow(s.h)) { settling.RemoveAt(i); continue; }
+            if (IsIconic(s.h)) continue;                      // the user minimized it: not ours to undo
+            RECT r;
+            if (!GetWindowRect(s.h, out r)) { settling.RemoveAt(i); continue; }
+            if (r.L != s.t.x || r.T != s.t.y || (r.R - r.L) != s.t.w || (r.B - r.T) != s.t.h) {
+                MoveWindow(s.h, s.t.x, s.t.y, s.t.w, s.t.h, true);
+                s.reapplied++;
             }
         }
     }
