@@ -75,6 +75,8 @@ These were learned the hard way during the original build. Please read before "s
 - **The pack folder holds exactly one ROM.** MSU-1 needs the ROM to carry the pack's name, and the Archipelago flow treats "an `.sfc` appeared in the pack folder" as "generation finished", so stale ROMs are always cleared — *after* the new one has been copied in.
 - **The tracker is scaled with a CSS transform, not Electron zoom.** Electron zoom clipped the boss icons in the fixed-pixel layout.
 - **The tracker loads from `file://`, and must keep doing so.** It stores colours, logic settings and presets in `localStorage`; serving it from a custom scheme would change its origin and wipe them for every user. `webSecurity` is on: the three remote hosts it reads (`alttpr.racing`, two `alttpr-patch-data` S3 buckets) already send `Access-Control-Allow-Origin: *`, and all cross-window traffic is `postMessage`.
+- **The window is a fixed 560×540 with rounded corners.** Rounded corners on a frameless window need `transparent: true`, and Electron cannot resize transparent windows from their edges, so the launcher is not resizable; the pack list scrolls instead. Don't set `resizable: true` without also adding your own edge handles.
+- **Themes are one charcoal ground plus an accent** (`poThemes` in `renderer.js` and `tracker/js/po-themes.js` — keep both tables identical; the tracker windows read the same CSS variables). Pre-2.3.0 theme names are mapped in `LEGACY_THEMES`.
 - **Settings live in memory** with debounced, atomic writes (the tracker saves its bounds on every move/resize event), which is why the launcher is single-instance.
 
 ## The vendored tracker

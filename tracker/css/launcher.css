@@ -79,7 +79,7 @@ div {
   width: 140px;
   padding: 4px 4px;
   border: 2px solid #333632;
-  border-radius: 5px;
+  border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
 }

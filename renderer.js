@@ -13,22 +13,27 @@ const path = {
 };
 
 // --- Theme Definitions (shared with tracker po-themes.js) ---
+// Workbench: one charcoal ground for every theme; the accent is what changes.
+// (Same table as tracker/js/po-themes.js — keep them in step.)
+const WB = { bg: "#141517", bgPanel: "#1b1d21", bgInput: "#101113", border: "#26282d", borderLight: "#33363d", headerBg: "#141517" };
 const poThemes = {
-  blue:     { accent: "#58a6ff", hover: "#79c0ff", glow: "rgba(88, 166, 255, 0.15)", bg: "#0a0f1a", bgPanel: "#0c1018", bgInput: "#070b12", border: "#1a2744", borderLight: "#1e2d4a", headerBg: "#060a12" },
-  red:      { accent: "#ff6b6b", hover: "#ff9999", glow: "rgba(255, 107, 107, 0.15)", bg: "#1a0a0a", bgPanel: "#180c0c", bgInput: "#120707", border: "#44201e", borderLight: "#4a2522", headerBg: "#120606" },
-  orange:   { accent: "#f0883e", hover: "#f4a261", glow: "rgba(240, 136, 62, 0.15)", bg: "#1a120a", bgPanel: "#180f0c", bgInput: "#120b07", border: "#44301e", borderLight: "#4a3622", headerBg: "#120a06" },
-  green:    { accent: "#3fb950", hover: "#6fdd8b", glow: "rgba(63, 185, 80, 0.15)",  bg: "#0a1a0d", bgPanel: "#0c180e", bgInput: "#071207", border: "#1a4420", borderLight: "#1e4a24", headerBg: "#061208" },
-  yellow:   { accent: "#d29922", hover: "#e3b341", glow: "rgba(210, 153, 34, 0.15)", bg: "#1a150a", bgPanel: "#18120c", bgInput: "#120e07", border: "#44361e", borderLight: "#4a3c22", headerBg: "#120e06" },
-  purple:   { accent: "#bc8cff", hover: "#d2a8ff", glow: "rgba(188, 140, 255, 0.15)", bg: "#120a1a", bgPanel: "#100c18", bgInput: "#0b0712", border: "#2e1a44", borderLight: "#34204a", headerBg: "#0a0612" },
-  black:    { accent: "#8b949e", hover: "#b1bac4", glow: "rgba(139, 148, 158, 0.12)", bg: "#000000", bgPanel: "#0a0a0a", bgInput: "#050505", border: "#2a2a2a", borderLight: "#333333", headerBg: "#000000" },
-  ember:    { accent: "#ff6b6b", hover: "#ff9999", glow: "rgba(255, 107, 107, 0.15)", bg: "#000000", bgPanel: "#0a0505", bgInput: "#050202", border: "#3a1515", borderLight: "#441a1a", headerBg: "#000000" },
-  midnight: { accent: "#58a6ff", hover: "#79c0ff", glow: "rgba(88, 166, 255, 0.15)", bg: "#000000", bgPanel: "#050810", bgInput: "#020508", border: "#152040", borderLight: "#1a2848", headerBg: "#000000" },
+  amber:  { accent: "#e8a33d", hover: "#f2b95c", glow: "rgba(232, 163, 61, 0.14)", ...WB },
+  orange: { accent: "#e07a4a", hover: "#ef9668", glow: "rgba(224, 122, 74, 0.14)", ...WB },
+  red:    { accent: "#e0604f", hover: "#ec7f70", glow: "rgba(224, 96, 79, 0.14)",  ...WB },
+  green:  { accent: "#5cb883", hover: "#7ccb9c", glow: "rgba(92, 184, 131, 0.14)", ...WB },
+  teal:   { accent: "#5fb0a5", hover: "#7fc6bc", glow: "rgba(95, 176, 165, 0.14)", ...WB },
+  blue:   { accent: "#6ea8e8", hover: "#8cbdf0", glow: "rgba(110, 168, 232, 0.14)", ...WB },
+  purple: { accent: "#b391e0", hover: "#c6ace9", glow: "rgba(179, 145, 224, 0.14)", ...WB },
+  slate:  { accent: "#c9c4b8", hover: "#dedad0", glow: "rgba(201, 196, 184, 0.12)", ...WB },
 };
+// Themes from before 2.3.0 (each had its own tinted background). Users who never picked one
+// were on 'blue'; they get the new default. A deliberate colour choice is kept.
+const LEGACY_THEMES = { blue: 'amber', midnight: 'amber', black: 'slate', ember: 'red', yellow: 'amber' };
 
-let currentTheme = 'blue';
+let currentTheme = 'amber';
 
 function applyTheme(name) {
-  const theme = poThemes[name] || poThemes.blue;
+  const theme = poThemes[name] || poThemes.amber;
   currentTheme = name;
   const r = document.documentElement;
   r.style.setProperty('--accent-color', theme.accent);
@@ -93,12 +98,13 @@ const dropFilename = document.getElementById('drop-filename');
 const packListEl = document.getElementById('pack-list');
 const packCount = document.getElementById('pack-count');
 const playBtn = document.getElementById('play-btn');
+const playLabel = document.getElementById('play-label');
+const playHint = document.getElementById('play-hint');
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
 const btnRefresh = document.getElementById('btn-refresh');
 const btnChangeFolder = document.getElementById('btn-change-folder');
 const btnMinimize = document.getElementById('btn-minimize');
-const btnMaximize = document.getElementById('btn-maximize');
 const btnClose = document.getElementById('btn-close');
 
 const btnRomRefresh = document.getElementById('btn-rom-refresh');
@@ -133,7 +139,6 @@ const btnBrowseTimer = document.getElementById('btn-browse-timer');
 
 // --- Title bar ---
 btnMinimize.addEventListener('click', () => ipcRenderer.invoke('minimize-window'));
-btnMaximize.addEventListener('click', () => ipcRenderer.invoke('maximize-window'));
 btnClose.addEventListener('click', () => ipcRenderer.invoke('close-window'));
 
 // --- Helpers ---
@@ -149,8 +154,23 @@ function updateLuaVisibility() {
   luaScriptOption.style.display = (show && chkLua.checked) ? 'flex' : 'none';
 }
 
+// "Downloads · SFC" style line under the loaded ROM name
+function romOrigin(filePath, filename) {
+  const sep = filePath.lastIndexOf('\\') >= 0 ? '\\' : '/';
+  const parts = filePath.split(sep);
+  const folder = parts.length > 1 ? parts[parts.length - 2] : '';
+  const ext = path.extname(filename).replace('.', '').toUpperCase();
+  return [folder, ext === 'APLTTP' ? 'Archipelago' : ext].filter(Boolean).join(' · ');
+}
+
 function updatePlayState() {
   const ready = !!romPath;                       // a music pack is optional
+  if (ready) {
+    const ext = path.extname(romPath).replace('.', '').toUpperCase();
+    playHint.textContent = `${ext === 'APLTTP' ? 'AP' : ext} · ${selectedPack ? selectedPack.name : 'Original soundtrack'}`;
+  } else {
+    playHint.textContent = 'Load a ROM';
+  }
   playBtn.disabled = !ready;
   if (ready) {
     playBtn.classList.add('ready');
@@ -183,10 +203,9 @@ function setRomLoaded(filePath, filename) {
   romPath = filePath;
   romFilename = filename;
   dropZone.classList.add('has-rom');
-  dropIcon.textContent = '⚔️';
-  dropLabel.textContent = 'ROM loaded';
   dropFilename.textContent = filename;
-  playBtn.textContent = '▶ Play';
+  dropLabel.textContent = romOrigin(filePath, filename);
+  playLabel.textContent = 'Play';
   setStatus('ROM ready', 'success');
   updatePlayState();
 }
@@ -195,8 +214,7 @@ function clearRom() {
   romPath = null;
   romFilename = null;
   dropZone.classList.remove('has-rom');
-  dropIcon.textContent = '🗡️';
-  dropLabel.textContent = 'Drop ROM here';
+  dropLabel.textContent = 'Drop a .sfc or .aplttp here';
   dropFilename.textContent = '';
   setStatus('ROM cleared', '');
   updatePlayState();
@@ -299,7 +317,16 @@ function renderPacks() {
 
     const nameEl = document.createElement('span');
     nameEl.className = 'pack-item-name';
-    nameEl.textContent = pack.name;
+    const cut = pack.name.lastIndexOf(' / ');
+    if (cut > 0) {
+      const group = document.createElement('span');
+      group.className = 'pack-group';
+      group.textContent = pack.name.slice(0, cut + 3);
+      nameEl.appendChild(group);
+      nameEl.appendChild(document.createTextNode(pack.name.slice(cut + 3)));
+    } else {
+      nameEl.textContent = pack.name;
+    }
 
     const msuEl = document.createElement('span');
     msuEl.className = 'pack-item-msu';
@@ -318,9 +345,9 @@ function renderPacks() {
     packListEl.appendChild(item);
   }
   let note = '';
-  if (lastScan && lastScan.cancelled) note = ' — scan cancelled, showing what was found';
-  else if (lastScan && lastScan.skipped) note = ` — ${lastScan.skipped} folder${lastScan.skipped === 1 ? '' : 's'} skipped (unreadable)`;
-  packCount.innerHTML = `<span>${packs.length}</span> pack${packs.length !== 1 ? 's' : ''} found${escapeHtml(note)}`;
+  if (lastScan && lastScan.cancelled) note = ' · SCAN CANCELLED';
+  else if (lastScan && lastScan.skipped) note = ` · ${lastScan.skipped} UNREADABLE`;
+  packCount.textContent = packsFolder ? `· ${packs.length} FOUND${note}` : '';
 }
 
 function escapeHtml(text) {
@@ -372,7 +399,7 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
   const settings = await ipcRenderer.invoke('load-settings');
 
   // Apply theme first so UI renders with correct colors
-  currentTheme = settings.theme || 'blue';
+  currentTheme = LEGACY_THEMES[settings.theme] || (poThemes[settings.theme] ? settings.theme : 'amber');
   buildThemeSwatches();
   applyTheme(currentTheme);
 
@@ -402,7 +429,7 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
       selectedPack = packs.find(p => p.name === settings.lastPack) || null;
       renderPacks();
       const sel = packListEl.querySelector('.selected');
-      if (sel) sel.scrollIntoView({ block: 'center' });
+      if (sel) sel.scrollIntoView({ block: 'nearest' });
     }
   } else if (setupSkipped) {
     setupOverlay.classList.add('hidden');
@@ -429,7 +456,7 @@ document.getElementById('setup-skip').addEventListener('click', async () => {
   await persistSettings();
   renderPacks();
   updatePlayState();
-  setStatus('Playing with the original soundtrack — pick a packs folder any time with 📁', 'success');
+  setStatus('Playing with the original soundtrack — pick a packs folder any time with the folder button', 'success');
 });
 
 btnChangeFolder.addEventListener('click', async () => {
@@ -579,11 +606,11 @@ playBtn.addEventListener('click', async () => {
 
   if (!isAplttp) {
     if (chkEmulator.checked && !emulatorPath) {
-      setStatus('Emulator enabled but not set — open ⚙ settings', 'error');
+      setStatus('Emulator enabled but not set — open settings', 'error');
       return;
     }
     if (chkSni.checked && !sniPath) {
-      setStatus('SNI enabled but not set — open ⚙ settings', 'error');
+      setStatus('SNI enabled but not set — open settings', 'error');
       return;
     }
   }
@@ -601,7 +628,7 @@ playBtn.addEventListener('click', async () => {
   playBtn.disabled = true;
   playBtn.classList.remove('ready');
   playBtn.classList.add('disabled');
-  playBtn.textContent = '⏳ Working...';
+  playLabel.textContent = 'Working…';
 
   const result = await ipcRenderer.invoke('launch-rom', {
     romPath,
@@ -628,14 +655,14 @@ playBtn.addEventListener('click', async () => {
       msg += ` (${result.alreadyRunning.join(' & ')} already running)`;
     }
     setStatus(msg, 'success');
-    playBtn.textContent = '✓ Launched';
+    playLabel.textContent = 'Launched';
     setTimeout(() => {
-      playBtn.textContent = '▶ Play';
+      playLabel.textContent = 'Play';
       updatePlayState();
     }, 2000);
   } else {
     setStatus(`Error: ${result.error}`, 'error');
-    playBtn.textContent = '▶ Play';
+    playLabel.textContent = 'Play';
     updatePlayState();
   }
 });
@@ -645,8 +672,10 @@ const apRow = document.getElementById('ap-romstart-row');
 const apChk = document.getElementById('chk-ap-romstart');
 const apStatus = document.getElementById('ap-romstart-status');
 function showApRomStart(state) {
-  if (!state || !state.found) { apRow.style.display = 'none'; return; }
+  const apGroup = document.getElementById('ap-group');
+  if (!state || !state.found) { apRow.style.display = 'none'; apGroup.style.display = 'none'; return; }
   apRow.style.display = '';
+  apGroup.style.display = '';
   apChk.checked = !state.on;                       // checked = fixed = only the launcher starts the ROM
   apStatus.className = 'companion-path ' + (state.on ? 'warn' : 'good');
   apStatus.textContent = state.on ? 'Archipelago also starts the ROM — emulator opens twice' : 'Only the launcher starts the ROM';

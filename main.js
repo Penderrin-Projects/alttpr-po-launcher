@@ -122,18 +122,20 @@ function saveTrackerBounds() {
 // Theme names end up inside a string passed to executeJavaScript(), so only a plain
 // identifier is ever allowed through. Anything else falls back to the default theme.
 function safeThemeName(name) {
-  return (typeof name === 'string' && /^[a-z0-9_-]{1,32}$/i.test(name)) ? name : 'blue';
+  return (typeof name === 'string' && /^[a-z0-9_-]{1,32}$/i.test(name)) ? name : 'amber';
 }
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
+    // Rounded corners need a transparent frameless window; Electron can't resize those from
+    // the edges, so the launcher is a fixed 560x540 with a scrolling pack list.
     width: 560,
-    height: 720,
-    minWidth: 480,
-    minHeight: 600,
-    resizable: true,
+    height: 540,
+    resizable: false,
+    maximizable: false,
     frame: false,
-    transparent: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     backgroundColor: '#0b1120',
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
@@ -195,7 +197,7 @@ function openTrackerWindow() {
 
   // Apply saved theme once page loads
   trackerWindow.webContents.on('did-finish-load', () => {
-    const theme = loadSettings().theme || 'blue';
+    const theme = loadSettings().theme || 'amber';
     trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
@@ -271,7 +273,7 @@ function openSettingsWindow() {
     const [w] = settingsWindow.getContentSize();
     settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
     // Apply saved theme
-    const theme = loadSettings().theme || 'blue';
+    const theme = loadSettings().theme || 'amber';
     settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
@@ -327,7 +329,7 @@ function openSettingsWindow() {
     win.setMenuBarVisibility(false);
     // Apply saved theme to popup tracker windows
     win.webContents.on('did-finish-load', () => {
-      const theme = loadSettings().theme || 'blue';
+      const theme = loadSettings().theme || 'amber';
       win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
     });
     win.on('resize', saveTrackerBounds);
@@ -869,7 +871,7 @@ function restoreLayout(layoutType) {
   // Restore Electron windows immediately
   // (skipped when the saved spot is on a monitor that isn't connected right now)
   if (layout.mainWindow && mainWindow && !mainWindow.isDestroyed() && boundsAreVisible(layout.mainWindow)) {
-    mainWindow.setBounds(layout.mainWindow);
+    mainWindow.setPosition(layout.mainWindow.x, layout.mainWindow.y);   // size is fixed since 2.3.0
   }
   if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed() && boundsAreVisible(layout.trackerWindow)) {
     trackerWindow.setBounds(layout.trackerWindow);
