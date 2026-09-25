@@ -136,6 +136,7 @@ function createMainWindow() {
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',   // must be the ONLY backgroundColor here: an opaque one fills in the corners
+    show: false,                    // shown on ready-to-show, so a transparent window never sits invisible while the page loads
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
@@ -143,6 +144,7 @@ function createMainWindow() {
       preload: path.join(__dirname, 'launcher-preload.js'),
     },
   });
+  mainWindow.once('ready-to-show', () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show(); });
   mainWindow.loadFile('renderer.html');
   mainWindow.on('closed', () => { mainWindow = null; });
 }
