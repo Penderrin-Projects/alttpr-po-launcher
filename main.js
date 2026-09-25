@@ -135,8 +135,7 @@ function createMainWindow() {
     maximizable: false,
     frame: false,
     transparent: true,
-    backgroundColor: '#00000000',
-    backgroundColor: '#0b1120',
+    backgroundColor: '#00000000',   // must be the ONLY backgroundColor here: an opaque one fills in the corners
     icon: path.join(__dirname, 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
@@ -684,6 +683,44 @@ function writeApRomStart(enable, file = AP_HOST_YAML) {
 
 ipcMain.handle('ap-romstart-get', () => readApRomStart());
 ipcMain.handle('ap-romstart-set', (event, enable) => writeApRomStart(!!enable));
+
+// ============================================================
+//  Setup guide
+// ============================================================
+// What the first-run guide needs from here: the app version (the guide shows once per
+// version), where the Archipelago pieces usually are, and whether each configured path still
+// exists on disk (so an upgrade check can say "no longer found" instead of nothing).
+const GUIDE_CANDIDATES = {
+  sni: [
+    'C:\\ProgramData\\Archipelago\\SNI\\sni.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Archipelago', 'SNI', 'sni.exe'),
+  ],
+  connectorLua: [
+    'C:\\ProgramData\\Archipelago\\SNI\\lua\\Connector.lua',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Archipelago', 'SNI', 'lua', 'Connector.lua'),
+  ],
+};
+
+ipcMain.handle('guide-info', () => {
+  const s = loadSettings();
+  const firstExisting = (list) => list.find(p => p && fs.existsSync(p)) || null;
+  const exists = (p) => !!p && fs.existsSync(p);
+  let downloads = null;
+  try { downloads = app.getPath('downloads'); } catch {}
+  return {
+    version: app.getVersion(),
+    found: {
+      sni: firstExisting(GUIDE_CANDIDATES.sni),
+      connectorLua: firstExisting(GUIDE_CANDIDATES.connectorLua),
+      hostYaml: fs.existsSync(AP_HOST_YAML),
+      downloads,
+    },
+    exists: {
+      emulatorPath: exists(s.emulatorPath), sniPath: exists(s.sniPath), timerPath: exists(s.timerPath),
+      luaScriptPath: exists(s.luaScriptPath), packsFolder: exists(s.packsFolder), stagingFolder: exists(s.stagingFolder),
+    },
+  };
+});
 
 // ============================================================
 //  Update check

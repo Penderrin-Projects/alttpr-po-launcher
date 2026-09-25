@@ -76,7 +76,8 @@ function buildThemeSwatches() {
 let packsFolder = null;
 let packs = [];
 let selectedPack = null;              // null = original soundtrack (no music pack)
-let setupSkipped = false;             // first-run screen dismissed without choosing a folder
+let setupSkipped = false;             // packs step skipped on purpose (no packs folder)
+let setupVersion = null;              // app version the setup guide was last finished for
 let lastScan = null;                  // summary of the most recent pack scan
 let scanSlowTimer = null;
 let scanning = false;                 // a pack scan is in progress
@@ -89,8 +90,6 @@ let stagingFolder = null;
 let timerPath = null;
 
 // --- DOM refs ---
-const setupOverlay = document.getElementById('setup-overlay');
-const setupBtn = document.getElementById('setup-btn');
 const dropZone = document.getElementById('drop-zone');
 const dropIcon = document.getElementById('drop-icon');
 const dropLabel = document.getElementById('drop-label');
@@ -225,6 +224,7 @@ async function persistSettings() {
     packsFolder,
     lastPack: selectedPack ? selectedPack.name : null,
     setupSkipped,
+    setupVersion,
     emulatorPath,
     sniPath,
     luaScriptPath,
@@ -240,14 +240,15 @@ async function persistSettings() {
 }
 
 // --- ROM Staging ---
+async function setStagingFolder(folder) {
+  stagingFolder = folder;
+  await persistSettings();
+  setStatus('Seeds folder set', 'success');
+  await loadFromStaging();
+}
 btnRomStagingFolder.addEventListener('click', async () => {
   const folder = await ipcRenderer.invoke('pick-folder');
-  if (folder) {
-    stagingFolder = folder;
-    await persistSettings();
-    setStatus(`Staging folder set`, 'success');
-    await loadFromStaging();
-  }
+  if (folder) await setStagingFolder(folder);
 });
 
 btnRomRefresh.addEventListener('click', async () => {
@@ -381,6 +382,7 @@ btnTrackerSettings.addEventListener('click', () => {
 
 ipcRenderer.on('tracker-configured', () => {
   setStatus('Tracker configured! You can now launch directly.', 'success');
+  guideRefresh();
 });
 
 // --- Layout Buttons ---
@@ -421,9 +423,9 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
   updateLuaVisibility();
 
   setupSkipped = settings.setupSkipped === true;
+  setupVersion = settings.setupVersion || null;
   if (settings.packsFolder) {
     packsFolder = settings.packsFolder;
-    setupOverlay.classList.add('hidden');
     await scanPacks();
     if (settings.lastPack) {
       selectedPack = packs.find(p => p.name === settings.lastPack) || null;
@@ -431,43 +433,35 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
       const sel = packListEl.querySelector('.selected');
       if (sel) sel.scrollIntoView({ block: 'nearest' });
     }
-  } else if (setupSkipped) {
-    setupOverlay.classList.add('hidden');
+  } else {
     renderPacks();
   }
 
   updatePlayState();
+
+  // First launch of this version: walk through setup (a quick check if a setup already exists)
+  const info = await ipcRenderer.invoke('guide-info');
+  if (setupVersion !== info.version) {
+    const configured = !!(emulatorPath || sniPath || packsFolder || settings.lastTrackerQuery);
+    openGuide(configured ? 'check' : 'setup', info);
+  }
 })();
 
-// --- Setup ---
-setupBtn.addEventListener('click', async () => {
-  const folder = await ipcRenderer.invoke('pick-folder');
-  if (folder) {
-    packsFolder = folder;
-    await persistSettings();
-    setupOverlay.classList.add('hidden');
-    await scanPacks();
-  }
-});
-
-document.getElementById('setup-skip').addEventListener('click', async () => {
-  setupSkipped = true;
-  setupOverlay.classList.add('hidden');
-  await persistSettings();
-  renderPacks();
-  updatePlayState();
-  setStatus('Playing with the original soundtrack — pick a packs folder any time with the folder button', 'success');
-});
-
-btnChangeFolder.addEventListener('click', async () => {
+// --- Packs folder ---
+async function choosePacksFolder() {
   const folder = await ipcRenderer.invoke('pick-folder');
   if (folder) {
     packsFolder = folder;
     selectedPack = null;
+    setupSkipped = false;
     await persistSettings();
     await scanPacks();
     setStatus('Folder changed', 'success');
   }
+  return !!folder;
+}
+btnChangeFolder.addEventListener('click', async () => {
+  await choosePacksFolder();
 });
 
 const scanBar = document.getElementById('scan-bar');
@@ -514,7 +508,7 @@ btnRefresh.addEventListener('click', async () => {
 });
 
 // --- Companion App Browsing ---
-btnBrowseEmulator.addEventListener('click', async () => {
+async function chooseEmulator() {
   const exe = await ipcRenderer.invoke('pick-exe', 'Select Emulator Executable');
   if (exe) {
     emulatorPath = exe;
@@ -523,9 +517,11 @@ btnBrowseEmulator.addEventListener('click', async () => {
     persistSettings();
     setStatus('Emulator set', 'success');
   }
-});
+  return !!exe;
+}
+btnBrowseEmulator.addEventListener('click', chooseEmulator);
 
-btnBrowseSni.addEventListener('click', async () => {
+async function chooseSni() {
   const exe = await ipcRenderer.invoke('pick-exe', 'Select SNI Executable');
   if (exe) {
     sniPath = exe;
@@ -533,9 +529,11 @@ btnBrowseSni.addEventListener('click', async () => {
     persistSettings();
     setStatus('SNI set', 'success');
   }
-});
+  return !!exe;
+}
+btnBrowseSni.addEventListener('click', chooseSni);
 
-btnBrowseLuaScript.addEventListener('click', async () => {
+async function chooseLuaScript() {
   const result = await ipcRenderer.invoke('pick-exe', 'Select Lua Script');
   if (result) {
     luaScriptPath = result;
@@ -543,14 +541,16 @@ btnBrowseLuaScript.addEventListener('click', async () => {
     persistSettings();
     setStatus('Lua script set', 'success');
   }
-});
+  return !!result;
+}
+btnBrowseLuaScript.addEventListener('click', chooseLuaScript);
 
 chkEmulator.addEventListener('change', () => { updateLuaVisibility(); persistSettings(); });
 chkLua.addEventListener('change', () => { updateLuaVisibility(); persistSettings(); });
 chkTracker.addEventListener('change', () => persistSettings());
 chkSni.addEventListener('change', () => persistSettings());
 
-btnBrowseTimer.addEventListener('click', async () => {
+async function chooseTimer() {
   const exe = await ipcRenderer.invoke('pick-exe', 'Select Timer Executable');
   if (exe) {
     timerPath = exe;
@@ -558,7 +558,9 @@ btnBrowseTimer.addEventListener('click', async () => {
     persistSettings();
     setStatus('Timer set', 'success');
   }
-});
+  return !!exe;
+}
+btnBrowseTimer.addEventListener('click', chooseTimer);
 chkTimer.addEventListener('change', () => persistSettings());
 
 // --- Drag & Drop ---
@@ -684,6 +686,7 @@ apChk.addEventListener('change', async () => {
   const state = await ipcRenderer.invoke('ap-romstart-set', !apChk.checked);
   if (state && state.ok === false) setStatus(`Could not update host.yaml: ${state.error}`, 'error');
   showApRomStart(state);
+  guideRefresh();
 });
 ipcRenderer.invoke('ap-romstart-get').then(showApRomStart).catch(() => {});
 
@@ -699,3 +702,145 @@ document.getElementById('btn-update-dismiss').addEventListener('click', () => { 
 // --- Prevent default drag on window ---
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('drop', (e) => e.preventDefault());
+
+// --- Setup guide ---
+// Shown on the first launch of each version (a quick check when a setup already exists) and
+// from Settings -> Setup guide. Every step uses the same choose* functions as the settings
+// panel, so nothing is stored twice.
+const guideEl = document.getElementById('guide');
+const guide = { steps: [], index: 0, info: null, mode: 'setup', skipped: new Set() };
+const GUIDE_TITLES = {
+  welcome: 'Welcome', emulator: 'Emulator', sni: 'SNI', timer: 'Timer', seeds: 'Seeds folder',
+  packs: 'Music packs', archipelago: 'Archipelago', tracker: 'Tracker preset', layout: 'Layouts', done: 'All set',
+};
+const g = (id) => document.getElementById(id);
+
+async function openGuide(mode, info) {
+  guide.info = info || await ipcRenderer.invoke('guide-info');
+  guide.mode = mode;
+  guide.skipped = new Set();
+  guide.steps = ['welcome', 'emulator', 'sni', 'timer', 'seeds', 'packs'];
+  if (guide.info.found.hostYaml) guide.steps.push('archipelago');
+  guide.steps.push('tracker', 'layout', 'done');
+  // Things the guide can fill in on its own
+  if (!luaScriptPath && guide.info.found.connectorLua) { luaScriptPath = guide.info.found.connectorLua; displayPath(luaScriptPathEl, luaScriptPath, 'No script (console only)'); }
+  if (!sniPath && guide.info.found.sni) { sniPath = guide.info.found.sni; displayPath(sniPathEl, sniPath); }
+  g('guide-welcome-setup').hidden = mode !== 'setup';
+  g('guide-welcome-check').hidden = mode !== 'check';
+  g('guide-finish-early').hidden = mode !== 'check';
+  settingsPanel.classList.remove('open');
+  guideEl.hidden = false;
+  showGuideStep(0);
+}
+
+function showGuideStep(i) {
+  guide.index = Math.max(0, Math.min(i, guide.steps.length - 1));
+  const id = guide.steps[guide.index];
+  for (const sec of guideEl.querySelectorAll('.guide-step')) sec.classList.toggle('active', sec.dataset.step === id);
+  g('guide-count').textContent = `STEP ${guide.index + 1} OF ${guide.steps.length}`;
+  g('guide-title').textContent = GUIDE_TITLES[id];
+  g('guide-back').hidden = guide.index === 0;
+  g('guide-skip').hidden = ['welcome', 'layout', 'done'].includes(id);
+  g('guide-next').textContent = id === 'done' ? 'Finish' : 'Next';
+  g('guide-body').scrollTop = 0;
+  guideRefresh();
+}
+
+// Repaint every readout from the live settings. Cheap, so it runs after any change.
+function guideRefresh() {
+  if (guideEl.hidden) return;
+  const ex = (guide.info && guide.info.exists) || {};
+  const show = (id, value, missingText, existsKey) => {
+    const el = g(id); if (!el) return;
+    el.classList.remove('not-set', 'good', 'warn');
+    if (!value) { el.textContent = missingText; el.classList.add('not-set'); el.title = ''; return; }
+    el.textContent = value; el.title = value;
+    if (existsKey && guide.mode === 'check' && ex[existsKey] === false) { el.textContent = `No longer found: ${value}`; el.classList.add('warn'); }
+    else el.classList.add('good');
+  };
+  show('guide-emulator-path', emulatorPath, 'Not set', 'emulatorPath');
+  show('guide-lua-path', luaScriptPath, 'Not found — it ships with SNI, usually in C:\\ProgramData\\Archipelago\\SNI\\lua\\', 'luaScriptPath');
+  g('guide-lua-block').style.display = emulatorPath && !isBizhawk() ? 'none' : '';
+  show('guide-sni-path', sniPath, 'Not set', 'sniPath');
+  show('guide-timer-path', timerPath, 'Not set', 'timerPath');
+  show('guide-staging-path', stagingFolder, 'Not set', 'stagingFolder');
+  g('guide-use-downloads').hidden = !(guide.info && guide.info.found.downloads) || stagingFolder === (guide.info && guide.info.found.downloads);
+  show('guide-packs-path', packsFolder, 'Not set', 'packsFolder');
+  if (packsFolder && lastScan) {
+    g('guide-packs-result').textContent = packs.length
+      ? `Found ${packs.length} pack${packs.length === 1 ? '' : 's'}.`
+      : `No packs found in that folder (looked ${lastScan.depthReached || 0} level${lastScan.depthReached === 1 ? '' : 's'} deep). Each pack must be a folder with a .msu file in it.`;
+  }
+  ipcRenderer.invoke('has-tracker-config').then((has) => {
+    const el = g('guide-tracker-status'); el.classList.toggle('good', has); el.classList.toggle('not-set', !has);
+    el.textContent = has ? 'Preset saved' : 'No preset yet';
+    if (guide.steps[guide.index] === 'done') renderGuideSummary(has);
+  });
+  if (guide.steps.includes('archipelago')) {
+    ipcRenderer.invoke('ap-romstart-get').then((st) => {
+      g('guide-ap-fix').checked = !!(st && st.found && !st.on);
+      g('guide-ap-status').textContent = !st || !st.found ? 'host.yaml has no rom_start settings to change.'
+        : st.on ? 'Archipelago will also start the ROM — the emulator will open twice.' : 'Only the launcher starts the ROM.';
+    });
+  }
+}
+
+function renderGuideSummary(hasTracker) {
+  const ex = (guide.info && guide.info.exists) || {};
+  const gone = (key, value) => (value && guide.mode === 'check' && ex[key] === false) ? `No longer found: ${value}` : null;
+  const rows = [
+    ['Emulator', emulatorPath, 'not set', gone('emulatorPath', emulatorPath)],
+    ['Lua connector', emulatorPath && !isBizhawk() ? 'n/a' : luaScriptPath, 'not set', gone('luaScriptPath', luaScriptPath)],
+    ['SNI', sniPath, 'not set', gone('sniPath', sniPath)],
+    ['Timer', timerPath, 'skipped', gone('timerPath', timerPath)],
+    ['Seeds folder', stagingFolder, 'not set', gone('stagingFolder', stagingFolder)],
+    ['Music packs', packsFolder ? `${packsFolder} (${packs.length} pack${packs.length === 1 ? '' : 's'})` : null, 'original soundtrack'],
+    ['Tracker preset', hasTracker ? 'saved' : null, 'not saved yet'],
+  ];
+  if (guide.steps.includes('archipelago')) rows.push(['AP fix', g('guide-ap-fix').checked ? 'on' : null, 'off']);
+  const box = g('guide-summary'); box.innerHTML = '';
+  for (const [k, v, missing, missingNow] of rows) {
+    const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+    const vv = document.createElement('span');
+    vv.className = 'v ' + (missingNow ? 'warn' : v ? 'good' : (missing === 'not set' || missing === 'not saved yet' ? 'warn' : 'skip'));
+    vv.textContent = missingNow || v || missing; vv.title = v || '';
+    box.appendChild(kk); box.appendChild(vv);
+  }
+}
+
+async function finishGuide() {
+  setupVersion = guide.info.version;
+  await persistSettings();
+  guideEl.hidden = true;
+  renderPacks();
+  updatePlayState();
+  setStatus('Setup finished', 'success');
+}
+
+g('guide-next').addEventListener('click', () => {
+  if (guide.steps[guide.index] === 'done') finishGuide();
+  else showGuideStep(guide.index + 1);
+});
+g('guide-back').addEventListener('click', () => showGuideStep(guide.index - 1));
+g('guide-skip').addEventListener('click', async () => {
+  const id = guide.steps[guide.index];
+  guide.skipped.add(id);
+  if (id === 'packs' && !packsFolder) { setupSkipped = true; await persistSettings(); }
+  showGuideStep(guide.index + 1);
+});
+g('guide-finish-early').addEventListener('click', finishGuide);
+g('guide-browse-emulator').addEventListener('click', async () => { await chooseEmulator(); guideRefresh(); });
+g('guide-browse-lua').addEventListener('click', async () => { await chooseLuaScript(); guideRefresh(); });
+g('guide-browse-sni').addEventListener('click', async () => { await chooseSni(); guideRefresh(); });
+g('guide-browse-timer').addEventListener('click', async () => { await chooseTimer(); guideRefresh(); });
+g('guide-browse-staging').addEventListener('click', async () => { const f = await ipcRenderer.invoke('pick-folder'); if (f) await setStagingFolder(f); guideRefresh(); });
+g('guide-use-downloads').addEventListener('click', async () => { if (guide.info.found.downloads) await setStagingFolder(guide.info.found.downloads); guideRefresh(); });
+g('guide-browse-packs').addEventListener('click', async () => { await choosePacksFolder(); guideRefresh(); });
+g('guide-open-tracker-settings').addEventListener('click', () => { ipcRenderer.invoke('open-tracker-settings'); });
+g('guide-ap-fix').addEventListener('change', async () => {
+  const state = await ipcRenderer.invoke('ap-romstart-set', !g('guide-ap-fix').checked);
+  if (state && state.ok === false) setStatus(`Could not update host.yaml: ${state.error}`, 'error');
+  showApRomStart(state);
+  guideRefresh();
+});
+document.getElementById('btn-run-guide').addEventListener('click', () => openGuide('setup'));

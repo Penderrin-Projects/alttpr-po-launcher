@@ -131,15 +131,33 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1
 @keyframes pulse { 50% { opacity: 0.3; } }
 
 /* ---- First run ---- */
-.setup-overlay { position: absolute; inset: 36px 0 0 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 40px; text-align: center; background: var(--theme-bg); }
-.setup-overlay.hidden { display: none; }
-.setup-mark { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--theme-border-light); border-radius: 6px; color: var(--accent-color); margin-bottom: 6px; }
-.setup-mark svg { width: 24px; height: 24px; stroke-width: 1.5; }
-.setup-title { font-size: 18px; font-weight: 600; }
-.setup-desc { max-width: 380px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px; }
-.setup-desc b { color: var(--text-primary); font-weight: 500; }
-.setup-skip { margin-top: 6px; font-size: 11px; color: var(--text-muted); text-decoration: underline; text-underline-offset: 3px; }
-.setup-skip:hover { color: var(--text-primary); }
+/* Setup guide */
+.guide { position: absolute; inset: 36px 0 0 0; z-index: 20; display: flex; flex-direction: column; background: var(--theme-bg); }
+.guide[hidden] { display: none; }
+.guide-head { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px 10px; border-bottom: 1px solid var(--theme-border); }
+.guide-count { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; color: var(--text-muted); }
+.guide-title { font-size: 16px; font-weight: 600; }
+.guide-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px; scrollbar-width: thin; scrollbar-color: var(--theme-border-light) transparent; }
+.guide-step { display: none; flex-direction: column; gap: 10px; font-size: 12.5px; line-height: 1.55; color: var(--text-primary); }
+.guide-step.active { display: flex; }
+.guide-step p { margin: 0; }
+.guide-step b { color: var(--text-bright); font-weight: 500; }
+.guide-muted { color: var(--text-muted); }
+.guide-note { padding: 8px 10px; border: 1px solid var(--theme-border-light); border-radius: 3px; font-size: 11.5px; color: var(--text-secondary); }
+.guide-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.guide-row .path { direction: rtl; text-align: left; }
+.guide-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.guide-check { padding: 4px 0; font-size: 12.5px; }
+.guide-summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 14px; font-size: 12px; }
+.guide-summary .k { color: var(--text-muted); }
+.guide-summary .v { font-family: var(--mono); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.guide-summary .v.good { color: var(--green); }
+.guide-summary .v.skip { color: var(--text-faint); }
+.guide-summary .v.warn { color: var(--red); }
+.guide-foot { display: flex; align-items: center; gap: 8px; padding: 10px 20px 14px; border-top: 1px solid var(--theme-border); }
+.guide-spacer { flex: 1; }
+.guide-foot .btn[hidden] { display: none; }
+.mono { font-family: var(--mono); font-size: 11px; color: var(--text-secondary); }
 
 /* ---- Settings panel ---- */
 .settings-panel { position: absolute; top: 36px; right: 0; bottom: 0; width: 100%; z-index: 10; display: flex; flex-direction: column; background: var(--theme-bg); border-left: 1px solid var(--theme-border); transform: translateX(100%); transition: transform 0.18s ease; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--theme-border-light) transparent; }
