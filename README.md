@@ -82,9 +82,9 @@ These were learned the hard way during the original build. Please read before "s
 
 ## The vendored tracker
 
-`tracker/` is a snapshot (asset stamps `20260131`) of the community ALTTPR item tracker with PO changes layered on top. The PO-specific files are `css/po-theme.css`, `css/po-theme-secondary.css`, `css/launcher.css` and `js/po-themes.js`, plus small hooks in `index.html`, `tracker.html`, `logic.html` and `colors.html`. When re-syncing from upstream, keep those and re-apply the hooks; upstream logic fixes do not arrive on their own.
+`tracker/` is a snapshot of the community ALTTPR item tracker — Muffins' fork, [KrisDavie/alttptracker](https://github.com/KrisDavie/alttptracker), which continued the original dunka tracker — at upstream commit `9f753b3` (Build 2.2.010, 2 March 2026), with PO changes layered on top. The PO-specific files are `css/po-theme.css`, `css/po-theme-secondary.css`, `css/launcher.css` and `js/po-themes.js`, plus small hooks in `index.html`, `tracker.html`, `logic.html` and `colors.html`. To re-sync: diff upstream's new commit against the recorded one, apply the code files directly, and hand-apply any hunks that land in the PO-modified files (usually only cache-buster stamps). Upstream logic fixes do not arrive on their own.
 
-Dungeon prize markers start as the blue crystal rather than "?" (`js/po-prize-default.js`); autotracking overwrites them with the real prize on collection, and clicking still cycles them.
+Dungeon prize markers start as the blue crystal rather than "?" (`js/po-prize-default.js`); the starting marker can be changed on the tracker settings page under Autotracking (`js/po-prize-setting.js`, saved to localStorage). Autotracking overwrites them with the real prize on collection, and clicking still cycles them.
 
 Known, harmless: the settings page logs `Cannot set properties of null (setting 'innerHTML')` — upstream's "upcoming race" code looking for an element the PO layout removed.
 
