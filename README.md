@@ -84,6 +84,8 @@ These were learned the hard way during the original build. Please read before "s
 
 `tracker/` is a snapshot (asset stamps `20260131`) of the community ALTTPR item tracker with PO changes layered on top. The PO-specific files are `css/po-theme.css`, `css/po-theme-secondary.css`, `css/launcher.css` and `js/po-themes.js`, plus small hooks in `index.html`, `tracker.html`, `logic.html` and `colors.html`. When re-syncing from upstream, keep those and re-apply the hooks; upstream logic fixes do not arrive on their own.
 
+Dungeon prize markers start as the blue crystal rather than "?" (`js/po-prize-default.js`); autotracking overwrites them with the real prize on collection, and clicking still cycles them.
+
 Known, harmless: the settings page logs `Cannot set properties of null (setting 'innerHTML')` — upstream's "upcoming race" code looking for an element the PO layout removed.
 
 ## License
