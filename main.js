@@ -267,6 +267,7 @@ function openSettingsWindow() {
   });
 
   settingsWindow.webContents.on('did-finish-load', () => {
+    settingsWindow.webContents.executeJavaScript(SETTINGS_PAGE_FLAGS_STUB).catch(() => {});
     const [w] = settingsWindow.getContentSize();
     settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
     // Apply saved theme
@@ -748,6 +749,73 @@ ipcMain.handle('check-for-update', async () => {
 });
 // The page never supplies the URL; it can only ask for this one fixed page to be opened.
 ipcMain.handle('open-release-page', () => { shell.openExternal(RELEASES_PAGE); });
+
+// ============================================================
+//  Tracker: scan the running game for this seed's settings
+// ============================================================
+// The tracker settings page already knows how to do this - its AUTO-CONFIGURE button reads the
+// ROM through SNI and, for alttpr.com seeds, fetches the seed's settings - so the scan runs that
+// page in a hidden window, waits for "Tracker auto-configured.", captures the query its LAUNCH
+// TRACKER button would open, and reloads the visible tracker with it. The saved preset is left
+// alone; the detected settings last for this tracker window only.
+const TRACKER_SCAN_TIMEOUT_MS = 20000;
+
+// The tracker's settings page shares autot.js with the tracker page but never defines the
+// `flags` object items.js creates there, and autotrackSetStatus() reads flags.autotracking on
+// every status update. Without this stub AUTO-CONFIGURE throws before it even connects. Injected
+// into both the hidden scan window and the visible settings window.
+const SETTINGS_PAGE_FLAGS_STUB = `window.flags = window.flags || { autotracking: 'N', doorshuffle: 'N', wildkeys: 'N', entrancemode: 'N',
+  trackinghost: (document.getElementById('autotrackinghost') || {}).value || 'localhost',
+  trackingport: parseInt((document.getElementById('autotrackingport') || {}).value) || 23074 }; true`;
+
+async function runTrackerScan() {
+  const win = new BrowserWindow({
+    show: false, width: 500, height: 850,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') },
+  });
+  let capturedUrl = null;
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.includes('tracker.html')) capturedUrl = url;
+    return { action: 'deny' };
+  });
+  const status = () => win.webContents.executeJavaScript(`(document.getElementById('autotrackingstatus') || {}).textContent || ''`).catch(() => '');
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  try {
+    await win.loadFile(path.join(__dirname, 'tracker', 'index.html'));
+    await win.webContents.executeJavaScript(SETTINGS_PAGE_FLAGS_STUB);
+    await win.webContents.executeJavaScript('autotrackTrackerConfigure(); true');
+    const started = Date.now();
+    while (Date.now() - started < TRACKER_SCAN_TIMEOUT_MS) {
+      await sleep(250);
+      // the page prefixes its status with "Autotracking Status:"; look at the message itself
+      const text = String(await status()).replace(/^.*?Status:\s*/i, '').trim();
+      if (/auto-configured/i.test(text)) {
+        await win.webContents.executeJavaScript('launch_tracker(); true');
+        await sleep(300);
+        if (!capturedUrl) return { ok: false, error: 'could not read the detected settings' };
+        return { ok: true, query: capturedUrl.substring(capturedUrl.indexOf('?') + 1).replace(/&r=\d+/, '') };
+      }
+      if (/^Error$|^Disconnected|No device|not supported|^Failed/i.test(text)) {
+        return { ok: false, error: text === 'Error' ? 'SNI is not running or not connected' : text };
+      }
+    }
+    return { ok: false, error: 'timed out. Is the game running and connected to SNI?' };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    if (!win.isDestroyed()) win.destroy();
+  }
+}
+
+ipcMain.handle('tracker-scan', async () => {
+  if (!trackerWindow || trackerWindow.isDestroyed()) return { ok: false, error: 'tracker window is not open' };
+  const result = await runTrackerScan();
+  if (result.ok && trackerWindow && !trackerWindow.isDestroyed()) {
+    const url = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${result.query}&r=${Date.now()}`;
+    trackerWindow.loadURL(url);                     // same window, same size; theme and zoom re-apply on load
+  }
+  return result;
+});
 
 // ============================================================
 //  IPC — Tracker Windows

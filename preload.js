@@ -48,6 +48,8 @@ function resizeWindowToZoom(zoom) {
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppPath: () => ipcRenderer.invoke('get-app-path'),
   isElectron: true,
+  // Scan the running game for this seed's settings and reload the tracker with them
+  scanSeed: () => ipcRenderer.invoke('tracker-scan'),
 
   adjustZoom: (delta) => {
     const current = parseFloat(document.documentElement.dataset.electronZoom || '1');
