@@ -6,7 +6,7 @@ A portable Windows launcher for *A Link to the Past Randomizer* and Archipelago 
 
 1. Download `ALTTPR-PO-Launcher.exe` from [Releases](https://github.com/Penderrin-Projects/alttpr-po-launcher/releases/latest). It is a single portable file; nothing is installed.
 2. The first launch walks you through setup: emulator, SNI, timer, seeds folder, music packs, the tracker preset and layouts. Every step can be skipped; the guide is always available again from **Settings → Setup guide**, and it runs once as a quick check after each update.
-3. Configure the tracker once (Tracker → settings, then LAUNCH TRACKER); the preset is remembered.
+3. The tracker comes with a built-in preset. For a seed with different settings, click the small **↻** at the bottom of the tracker window (left of the autotracking status) once the game is running: it reads the seed through SNI and reloads the tracker with that seed's settings, without touching your preset. Or configure it yourself (Tracker → settings, then LAUNCH TRACKER), which saves a preset.
 4. Drop a `.sfc` or `.aplttp` on the window, or put it in the staging folder, pick a music pack, press **Play**.
 5. Arrange your windows, then **Save Layout** (there is one layout for `.sfc` and one for `.aplttp`).
 
