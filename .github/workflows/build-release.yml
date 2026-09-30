@@ -61,10 +61,25 @@ jobs:
           if (Test-Path selftest.json) { Get-Content selftest.json } else { throw "self-test wrote no report" }
           if ($p.ExitCode -ne 0) { throw "self-test failed (exit $($p.ExitCode))" }
 
+      # The portable exe unpacks ~400 MB to TEMP on every launch (about 7 s with Defender scanning it).
+      # The zip is the same app as a folder: extract once, launch in about a second.
+      - name: Zip the unpacked app (fast-launch alternative to the portable exe)
+        shell: pwsh
+        run: |
+          $stage = "dist\zip-stage\ALTTPR PO Launcher"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "dist\win-unpacked\*" $stage -Recurse -Force
+          Compress-Archive -Path "dist\zip-stage\ALTTPR PO Launcher" -DestinationPath "dist\ALTTPR-PO-Launcher-win64.zip" -CompressionLevel Optimal -Force
+          $exeInZip = [IO.Compression.ZipFile]::OpenRead("$PWD\dist\ALTTPR-PO-Launcher-win64.zip").Entries | Where-Object { $_.FullName -eq 'ALTTPR PO Launcher/ALTTPR PO Launcher.exe' }
+          if (-not $exeInZip) { throw "zip does not contain 'ALTTPR PO Launcher/ALTTPR PO Launcher.exe'" }
+          Get-Item dist\*.zip, dist\*.exe | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB)}}
+
       - uses: actions/upload-artifact@v4
         with:
           name: ALTTPR-PO-Launcher
-          path: dist/ALTTPR-PO-Launcher.exe
+          path: |
+            dist/ALTTPR-PO-Launcher-win64.zip
+            dist/ALTTPR-PO-Launcher.exe
           if-no-files-found: error
 
       - name: Draft release
@@ -72,4 +87,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/ALTTPR-PO-Launcher.exe --draft --generate-notes --title "ALTTPR PO Launcher $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/ALTTPR-PO-Launcher-win64.zip dist/ALTTPR-PO-Launcher.exe --draft --generate-notes --title "ALTTPR PO Launcher $GITHUB_REF_NAME"

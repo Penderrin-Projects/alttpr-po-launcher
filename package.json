@@ -1,6 +1,6 @@
 {
   "name": "alttpr-po-launcher",
-  "version": "2.6.2",
+  "version": "2.6.3",
   "description": "ALTTPR PO Launcher - Launcher, Tracker & Music Pack Manager",
   "main": "main.js",
   "scripts": {
