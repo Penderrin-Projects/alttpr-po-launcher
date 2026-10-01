@@ -795,7 +795,7 @@ async function runTrackerScan() {
         if (!capturedUrl) return { ok: false, error: 'could not read the detected settings' };
         return { ok: true, query: capturedUrl.substring(capturedUrl.indexOf('?') + 1).replace(/&r=\d+/, '') };
       }
-      if (/^Error$|^Disconnected|No device|not supported|^Failed/i.test(text)) {
+      if (/^Error$|^Disconnected|No device|not supported|^Failed|^Could not load/i.test(text)) {
         return { ok: false, error: text === 'Error' ? 'SNI is not running or not connected' : text };
       }
     }
@@ -807,10 +807,24 @@ async function runTrackerScan() {
   }
 }
 
+// The settings page keeps its own form state, so the query it produces carries whatever display
+// choices were last made there. Only the seed decides the game flags (f) and starting items (s);
+// map mode, colours, sprite and autotracking (d, a, p, ...) stay as the tracker is running them.
+function mergeScannedQuery(currentQuery, scannedQuery) {
+  const cur = new URLSearchParams(currentQuery);
+  const scan = new URLSearchParams(scannedQuery);
+  for (const key of ['f', 's']) if (scan.has(key)) cur.set(key, scan.get(key));
+  cur.delete('r');
+  return cur.toString();
+}
+
 ipcMain.handle('tracker-scan', async () => {
   if (!trackerWindow || trackerWindow.isDestroyed()) return { ok: false, error: 'tracker window is not open' };
   const result = await runTrackerScan();
   if (result.ok && trackerWindow && !trackerWindow.isDestroyed()) {
+    const running = trackerWindow.webContents.getURL();
+    const currentQuery = running.includes('?') ? running.slice(running.indexOf('?') + 1) : getTrackerQuery();
+    result.query = mergeScannedQuery(currentQuery, result.query);
     const url = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${result.query}&r=${Date.now()}`;
     trackerWindow.loadURL(url);                     // same window, same size; theme and zoom re-apply on load
   }

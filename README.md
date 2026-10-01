@@ -92,6 +92,8 @@ These were learned the hard way during the original build. Please read before "s
 
 Dungeon prize markers start as the blue crystal rather than "?" (`js/po-prize-default.js`); the starting marker can be changed on the tracker settings page under Autotracking (`js/po-prize-setting.js`, saved to localStorage). Autotracking overwrites them with the real prize on collection, and clicking still cycles them.
 
+`js/po-import-fix.js` works around an upstream bug that made AUTO-CONFIGURE hang for alttpr.com seeds (the import field got a bare hash, which `importflags()` turns into `.../undefined.json`); it also reports a failed seed download in the status line. The ↻ scan takes only the seed-derived `f` and `s` parts of the result and keeps the running tracker's display settings.
+
 Known, harmless: the settings page logs `Cannot set properties of null (setting 'innerHTML')` — upstream's "upcoming race" code looking for an element the PO layout removed.
 
 ## License
