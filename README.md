@@ -4,9 +4,12 @@ A portable Windows launcher for *A Link to the Past Randomizer* and Archipelago 
 
 ## Using it
 
-1. Download from [Releases](https://github.com/Penderrin-Projects/alttpr-po-launcher/releases/latest). Two forms of the same app, nothing installed either way:
-   - **`ALTTPR-PO-Launcher-win64.zip`** (recommended) — extract the folder anywhere and run `ALTTPR PO Launcher.exe` inside it. Launches in about a second.
+1. Download from [Releases](https://github.com/Penderrin-Projects/alttpr-po-launcher/releases/latest). Three forms of the same app:
+   - **`ALTTPR-PO-Launcher-Setup.exe`** — a normal installer: Start menu and desktop shortcuts, uninstall from Windows Settings. Installs for the current user by default (no admin needed) and launches in about a second.
+   - **`ALTTPR-PO-Launcher-win64.zip`** — nothing installed: extract the folder anywhere and run `ALTTPR PO Launcher.exe` inside it. Also launches in about a second.
    - **`ALTTPR-PO-Launcher.exe`** — a single portable file. Convenient, but it unpacks itself to a temporary folder on every launch, which takes 5-8 seconds.
+
+   All three keep their settings and layouts in `%APPDATA%\alttpr-po-launcher`, so switching between them loses nothing.
 2. The first launch walks you through setup: emulator, SNI, timer, seeds folder, music packs, the tracker preset and layouts. Every step can be skipped; the guide is always available again from **Settings → Setup guide**, and it runs once as a quick check after each update.
 3. The tracker comes with a built-in preset. For a seed with different settings, click the small **↻** at the bottom of the tracker window (left of the autotracking status) once the game is running: it reads the seed through SNI and reloads the tracker with that seed's settings, without touching your preset. Or configure it yourself (Tracker → settings, then LAUNCH TRACKER), which saves a preset.
 4. Drop a `.sfc` or `.aplttp` on the window, or put it in the staging folder, pick a music pack, press **Play**.
@@ -31,7 +34,7 @@ The launcher tells you when a newer release exists. Set `"checkForUpdates": fals
 
 ## Startup time
 
-The portable exe is slow to open because of how it works, not because of the app: on every launch it unpacks about 400 MB into a fresh temporary folder (and Defender scans each file as it lands), then runs the app from there and deletes the folder on exit. Measured on an NVMe SSD: 7.3 s before the app process exists, then 0.5 s to the window. The zip release is the same app already unpacked, so it skips all of that.
+The portable exe is slow to open because of how it works, not because of the app: on every launch it unpacks about 400 MB into a fresh temporary folder (and Defender scans each file as it lands), then runs the app from there and deletes the folder on exit. Measured on an NVMe SSD: 7.3 s before the app process exists, then 0.5 s to the window. The installer and the zip are the same app already unpacked, so they skip all of that.
 
 ## Building
 

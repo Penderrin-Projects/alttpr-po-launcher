@@ -1,7 +1,7 @@
 name: Build & draft release
 
-# - every pull request to main: build the Windows exe and attach it to the run as an artifact
-# - pushing a tag like v2.1.0: build, then create a DRAFT release with the exe attached.
+# - every pull request to main: build the Windows zip, portable exe and installer and attach them to the run
+# - pushing a tag like v2.1.0: build, then create a DRAFT release with all three attached.
 #   Publishing the draft by hand is what fires the Discord notification (a release published
 #   by a workflow's own token does not trigger other workflows).
 on:
@@ -50,6 +50,8 @@ jobs:
           for f in /main.js /preload.js /launcher-preload.js /renderer.html /renderer.js /styles.css /native/WinHelper.cs /tracker/tracker.html; do
             grep -qxF "$f" asar.txt || grep -qxF "${f//\//\\}" asar.txt || { echo "::error::$f missing from app.asar"; exit 1; }
           done
+          test -f "dist/ALTTPR-PO-Launcher.exe" || { echo "::error::portable exe missing"; exit 1; }
+          test -f "dist/ALTTPR-PO-Launcher-Setup.exe" || { echo "::error::installer missing"; exit 1; }
           ls -l dist/*.exe
 
       - name: Self-test the packaged app (boots it for real; see runSelfTest in main.js)
@@ -80,6 +82,7 @@ jobs:
           path: |
             dist/ALTTPR-PO-Launcher-win64.zip
             dist/ALTTPR-PO-Launcher.exe
+            dist/ALTTPR-PO-Launcher-Setup.exe
           if-no-files-found: error
 
       - name: Draft release
@@ -87,4 +90,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/ALTTPR-PO-Launcher-win64.zip dist/ALTTPR-PO-Launcher.exe --draft --generate-notes --title "ALTTPR PO Launcher $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/ALTTPR-PO-Launcher-win64.zip dist/ALTTPR-PO-Launcher.exe dist/ALTTPR-PO-Launcher-Setup.exe --draft --generate-notes --title "ALTTPR PO Launcher $GITHUB_REF_NAME"
