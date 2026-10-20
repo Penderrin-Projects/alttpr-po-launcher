@@ -28,11 +28,25 @@
       "tracker/**/*"
     ],
     "win": {
-      "target": "portable",
+      "target": [
+        "portable",
+        "nsis"
+      ],
       "icon": "icon.ico"
     },
     "portable": {
       "artifactName": "ALTTPR-PO-Launcher.exe"
+    },
+    "nsis": {
+      "artifactName": "ALTTPR-PO-Launcher-Setup.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ALTTPR PO Launcher",
+      "uninstallDisplayName": "ALTTPR PO Launcher",
+      "deleteAppDataOnUninstall": false
     },
     "extraResources": [
       {

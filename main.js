@@ -1060,8 +1060,9 @@ function getLuaLauncherPath(realScriptPath) {
   // If user has a real script configured, use it directly
   if (realScriptPath) return realScriptPath;
 
-  // No script configured — generate a dummy that just opens the console
-  const base = app.isPackaged ? path.dirname(process.execPath) : __dirname;
+  // No script configured — generate a dummy that just opens the console.
+  // Written to userData, not next to the exe: an installed copy may live in Program Files.
+  const base = app.isPackaged ? app.getPath('userData') : __dirname;
   const launcherPath = path.join(base, 'open_console.lua');
   fs.writeFileSync(launcherPath, '-- PO Launcher: opens Lua Console on startup\n', 'utf-8');
   return launcherPath;
