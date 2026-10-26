@@ -471,7 +471,7 @@
     // Sub-line under the clock
     if (!connected) $('clock-sub').textContent = wantConnected ? 'Connecting…' : 'Connect to a room to begin';
     else if (armed) { /* countdown text is written by onPrint */ }
-    else if (!race.startedAt) $('clock-sub').textContent = isHost() ? 'READY — press Start race' : 'WAITING FOR HOST';
+    else if (!race.startedAt) $('clock-sub').textContent = isHost() ? (compact ? 'READY — Full view to start' : 'READY — press Start race') : 'WAITING FOR HOST';
     else if (allDone()) $('clock-sub').textContent = 'RACE OVER';
     else { const s = standings(); $('clock-sub').textContent = `RUNNING — ${s.open.length} still going`; }
 
@@ -522,7 +522,54 @@
       for (const x of s.dnf) list.appendChild(mkResult('', x.name, 'DNF', '', true));
     }
     tickClock();
+    fitCompact();
   }
+
+  // ---------------------------------------------------------------- compact / full, pin
+  // main owns the window (size, position, on-top); the page owns the layout. The mode arrives
+  // in the query string so the first frame is already right, and the page tells main the
+  // height compact needs whenever its content changes.
+  const bridge = window.poTimer || null;          // absent when the page is opened outside the launcher
+  let compact = new URLSearchParams(location.search).get('mode') === 'compact';
+  let lastFitHeight = 0;
+
+  function applyCompactClass() {
+    document.documentElement.classList.toggle('compact', compact);
+    $('btn-compact').textContent = compact ? 'Full' : 'Compact';
+    $('btn-compact').classList.toggle('active', compact);
+  }
+
+  function contentHeight() {
+    // Measured with height:auto in compact mode, so this is the real content height.
+    return Math.ceil(document.documentElement.getBoundingClientRect().height);
+  }
+
+  function fitCompact() {
+    if (!compact || !bridge) return;
+    const h = contentHeight();
+    if (h === lastFitHeight) return;
+    lastFitHeight = h;
+    bridge.fitHeight(h);
+  }
+
+  function setCompact(on) {
+    compact = !!on;
+    applyCompactClass();
+    lastFitHeight = 0;
+    if (bridge) bridge.setCompact(compact, compact ? contentHeight() : 0);
+    render();
+  }
+
+  applyCompactClass();
+  $('btn-compact').addEventListener('click', () => setCompact(!compact));
+  $('btn-pin').addEventListener('click', async () => {
+    if (!bridge) return;
+    const on = !$('btn-pin').classList.contains('active');
+    await bridge.setOnTop(on);
+    $('btn-pin').classList.toggle('active', on);
+  });
+  if (bridge) bridge.getState().then((s) => { if (s) $('btn-pin').classList.toggle('active', !!s.onTop); }).catch(() => {});
+  else { $('btn-pin').hidden = true; }
 
   function mkBtn(label, onClick, disabled) {
     const b = document.createElement('button');

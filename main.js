@@ -153,17 +153,25 @@ function createMainWindow() {
 // ============================================================
 //  TRACKER — Direct Launch
 // ============================================================
-function openTrackerWindow() {
+// dims: the content size the settings page asked for (its LAUNCH TRACKER button computes
+// one); otherwise derived from the query. reload: an open tracker is reloaded with the
+// current query instead of just focused (settings page pressed LAUNCH TRACKER again).
+function openTrackerWindow({ dims = null, reload = false } = {}) {
+  const query = getTrackerQuery();
+  const parsedDims = dims || parseTrackerDims(query);
+  const trackerUrl = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${query}&r=${Date.now()}`;
+
   if (trackerWindow && !trackerWindow.isDestroyed()) {
+    if (reload) {
+      trackerContentDims = { width: parsedDims.width, height: parsedDims.height };
+      trackerWindow.loadURL(trackerUrl);
+    }
     trackerWindow.focus();
     return 'open';
   }
 
   const settings = loadSettings();
-  const query = getTrackerQuery();
-
   const bounds = getSafeTrackerBounds(settings.trackerBounds);
-  const parsedDims = parseTrackerDims(query);
 
   trackerWindow = new BrowserWindow({
     width: bounds ? bounds.width : (parsedDims.width + 16),
@@ -185,8 +193,6 @@ function openTrackerWindow() {
 
   trackerContentDims = { width: parsedDims.width, height: parsedDims.height };
   trackerWindow.setMenuBarVisibility(false);
-
-  const trackerUrl = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${query}&r=${Date.now()}`;
   trackerWindow.loadURL(trackerUrl);
 
   trackerWindow.on('resize', saveTrackerBounds);
@@ -205,34 +211,80 @@ function openTrackerWindow() {
 // ============================================================
 //  RACE TIMER — Archipelago multiworld race stopwatch
 // ============================================================
-// A plain page (racetimer/racetimer.html) that talks to the Archipelago room over WebSocket
-// from the renderer itself, so it needs no preload and no IPC — only a window to live in.
-// Bounds are saved the same way as the tracker's, so it reopens where it was left.
+// A page (racetimer/racetimer.html) that talks to the Archipelago room over WebSocket from
+// the renderer itself. The only thing it needs main for is the window: two sizes — "full"
+// (controls, results, log) and "compact" (clock + player list, sized to its content) — plus
+// a keep-on-top pin. Each mode remembers its own position and size, so flipping between
+// them puts the window back where it was last used in that mode.
 let raceTimerWindow = null;
+let raceTimerSwitching = false;   // bounds we set during a mode switch aren't "where the user put it"
+
+const RACE_TIMER_SIZES = {
+  full:    { width: 580, height: 640, minWidth: 440, minHeight: 420 },
+  compact: { width: 300, height: 190, minWidth: 220, minHeight: 110 },
+};
+const raceTimerMode = () => (loadSettings().raceTimerCompact ? 'compact' : 'full');
+const raceTimerBoundsKey = (mode) => (mode === 'compact' ? 'raceTimerCompactBounds' : 'raceTimerBounds');
 
 function saveRaceTimerBounds() {
   if (!raceTimerWindow || raceTimerWindow.isDestroyed()) return;
-  if (raceTimerWindow.isMinimized()) return;
-  saveSettings({ raceTimerBounds: raceTimerWindow.getBounds() });
+  if (raceTimerWindow.isMinimized() || raceTimerSwitching) return;
+  saveSettings({ [raceTimerBoundsKey(raceTimerMode())]: raceTimerWindow.getBounds() });
 }
 
-function openRaceTimerWindow() {
+// Switch the open window to a mode. bounds: explicit placement (layout restore); otherwise
+// the mode's remembered bounds; otherwise the mode's default size at the current position.
+// contentHeight: what the page says compact needs, used when compact has no remembered size.
+function applyRaceTimerMode(mode, { bounds = null, contentHeight = 0 } = {}) {
+  if (!raceTimerWindow || raceTimerWindow.isDestroyed()) return;
+  const spec = RACE_TIMER_SIZES[mode] || RACE_TIMER_SIZES.full;
+  saveSettings({ raceTimerCompact: mode === 'compact' });
+  const saved = getSafeTrackerBounds(bounds || loadSettings()[raceTimerBoundsKey(mode)]);
+  const cur = raceTimerWindow.getBounds();
+  raceTimerSwitching = true;
+  try {
+    raceTimerWindow.setMinimumSize(spec.minWidth, spec.minHeight);
+    if (saved) {
+      raceTimerWindow.setBounds({ x: saved.x ?? cur.x, y: saved.y ?? cur.y, width: saved.width, height: saved.height });
+    } else {
+      raceTimerWindow.setBounds({ x: cur.x, y: cur.y, width: spec.width, height: spec.height });
+      if (mode === 'compact' && contentHeight) fitRaceTimerHeight(contentHeight);
+    }
+  } finally { raceTimerSwitching = false; }
+  saveSettings({ [raceTimerBoundsKey(mode)]: raceTimerWindow.getBounds() });
+}
+
+// Compact mode grows and shrinks with the player list: the page reports the height it needs.
+function fitRaceTimerHeight(contentHeight) {
+  if (!raceTimerWindow || raceTimerWindow.isDestroyed() || raceTimerMode() !== 'compact') return;
+  const h = Math.max(RACE_TIMER_SIZES.compact.minHeight, Math.min(1200, Math.ceil(contentHeight)));
+  const [w] = raceTimerWindow.getContentSize();
+  raceTimerWindow.setContentSize(w, h);
+}
+
+// opts.mode / opts.bounds: open straight into a mode and place (layout restore).
+function openRaceTimerWindow(opts = {}) {
   if (raceTimerWindow && !raceTimerWindow.isDestroyed()) {
+    if (opts.mode) applyRaceTimerMode(opts.mode, { bounds: opts.bounds });
     raceTimerWindow.focus();
     return 'open';
   }
 
   const settings = loadSettings();
-  const bounds = getSafeTrackerBounds(settings.raceTimerBounds);
+  const mode = opts.mode || (settings.raceTimerCompact ? 'compact' : 'full');
+  const spec = RACE_TIMER_SIZES[mode];
+  const bounds = getSafeTrackerBounds(opts.bounds || settings[raceTimerBoundsKey(mode)]);
+  if (opts.mode) saveSettings({ raceTimerCompact: mode === 'compact' });
 
   raceTimerWindow = new BrowserWindow({
-    width: bounds ? bounds.width : 580,
-    height: bounds ? bounds.height : 640,
+    width: bounds ? bounds.width : spec.width,
+    height: bounds ? bounds.height : spec.height,
     x: bounds ? bounds.x : undefined,
     y: bounds ? bounds.y : undefined,
-    minWidth: 440,
-    minHeight: 420,
+    minWidth: spec.minWidth,
+    minHeight: spec.minHeight,
     resizable: true,
+    alwaysOnTop: !!settings.raceTimerOnTop,
     title: 'PO Race Timer',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
@@ -241,13 +293,16 @@ function openRaceTimerWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      preload: path.join(__dirname, 'racetimer', 'racetimer-preload.js'),
     },
   });
 
   raceTimerWindow.setMenuBarVisibility(false);
-  // The room of the last .aplttp launched rides along as the query string (see rememberApRoom).
+  // The room of the last .aplttp launched rides along as the query string (see rememberApRoom),
+  // and so does the mode, so the page renders compact from its first frame.
   const room = settings.apRoom || {};
   const query = room.slot ? { server: room.server || '', slot: room.slot, file: room.file || '' } : {};
+  query.mode = mode;
   raceTimerWindow.loadFile(path.join(__dirname, 'racetimer', 'racetimer.html'), { query });
 
   raceTimerWindow.on('resize', saveRaceTimerBounds);
@@ -261,6 +316,27 @@ function openRaceTimerWindow() {
 
   return 'open';
 }
+
+// IPC from the race timer page (racetimer-preload.js). Only its own window is ever touched.
+const fromRaceTimer = (event) => raceTimerWindow && !raceTimerWindow.isDestroyed() && event.sender === raceTimerWindow.webContents;
+ipcMain.handle('race-timer-state', (event) => {
+  if (!fromRaceTimer(event)) return null;
+  const s = loadSettings();
+  return { compact: !!s.raceTimerCompact, onTop: !!s.raceTimerOnTop };
+});
+ipcMain.handle('race-timer-mode', (event, compact, contentHeight) => {
+  if (!fromRaceTimer(event)) return;
+  applyRaceTimerMode(compact ? 'compact' : 'full', { contentHeight: Number(contentHeight) || 0 });
+});
+ipcMain.handle('race-timer-fit', (event, contentHeight) => {
+  if (!fromRaceTimer(event)) return;
+  fitRaceTimerHeight(Number(contentHeight) || 0);
+});
+ipcMain.handle('race-timer-on-top', (event, onTop) => {
+  if (!fromRaceTimer(event)) return;
+  raceTimerWindow.setAlwaysOnTop(!!onTop);
+  saveSettings({ raceTimerOnTop: !!onTop });
+});
 
 function parseTrackerDims(query) {
   const params = {};
@@ -359,48 +435,16 @@ function openSettingsWindow() {
       if (wMatch) width = parseInt(wMatch[1]);
       if (hMatch) height = parseInt(hMatch[1]);
     }
-    trackerContentDims = { width, height };
 
-    const b = getSafeTrackerBounds(loadSettings().trackerBounds);
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        width: b ? b.width : width + 16,
-        height: b ? b.height : height + 62,
-        x: b ? b.x : undefined,
-        y: b ? b.y : undefined,
-        minWidth: 300, minHeight: 200, resizable: true,
-        title: 'ALTTP Tracker',
-        icon: path.join(__dirname, 'icon.ico'),
-        autoHideMenuBar: true,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          preload: path.join(__dirname, 'preload.js'),
-        },
-      },
-    };
+    // The page used window.open(); letting that through would make the tracker a child of
+    // the settings window, and Chromium closes such popups when their opener closes — which
+    // is why the tracker used to vanish when the settings window was closed. Open it as an
+    // ordinary top-level window of our own instead (the query is already saved above).
+    openTrackerWindow({ dims: { width, height }, reload: true });
+    return { action: 'deny' };
   });
 
-  const onChildCreated = (_, win) => {
-    if (win === mainWindow || win === settingsWindow) return;
-    trackerWindow = win;
-    win.setMenuBarVisibility(false);
-    // Apply saved theme to popup tracker windows
-    win.webContents.on('did-finish-load', () => {
-      const theme = loadSettings().theme || 'amber';
-      win.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
-    });
-    win.on('resize', saveTrackerBounds);
-    win.on('move', saveTrackerBounds);
-    win.on('closed', () => { trackerWindow = null; });
-  };
-  app.on('browser-window-created', onChildCreated);
-
-  settingsWindow.on('closed', () => {
-    settingsWindow = null;
-    app.removeListener('browser-window-created', onChildCreated);
-  });
+  settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
 // ============================================================
@@ -1094,6 +1138,12 @@ ipcMain.handle('save-layout', (_e, layoutType) => {
     layout.trackerWindow = trackerWindow.getBounds();
   }
 
+  // Capture the race timer (Electron window) with its mode, so the layout brings it back
+  // the same shape it was saved in.
+  if (raceTimerWindow && !raceTimerWindow.isDestroyed() && !raceTimerWindow.isMinimized()) {
+    layout.raceTimerWindow = { ...raceTimerWindow.getBounds(), mode: raceTimerMode() };
+  }
+
   // Capture all external windows
   const externalWindows = captureExternalWindows();
   if (externalWindows.length > 0) {
@@ -1106,7 +1156,7 @@ ipcMain.handle('save-layout', (_e, layoutType) => {
   // Write debug log
   writeDebugFile('layout-debug.json', JSON.stringify({ layoutType, layout }, null, 2));
 
-  const count = (layout.mainWindow ? 1 : 0) + (layout.trackerWindow ? 1 : 0) + externalWindows.length;
+  const count = (layout.mainWindow ? 1 : 0) + (layout.trackerWindow ? 1 : 0) + (layout.raceTimerWindow ? 1 : 0) + externalWindows.length;
   return { saved: true, windowCount: count };
 });
 
@@ -1136,6 +1186,11 @@ function restoreLayout(layoutType, skipProcesses = []) {
   }
   if (layout.trackerWindow && trackerWindow && !trackerWindow.isDestroyed() && boundsAreVisible(layout.trackerWindow)) {
     trackerWindow.setBounds(layout.trackerWindow);
+  }
+  // The race timer was part of this layout: open it if it isn't, in the saved mode, and place it.
+  if (layout.raceTimerWindow && boundsAreVisible(layout.raceTimerWindow)) {
+    const { mode, ...bounds } = layout.raceTimerWindow;
+    openRaceTimerWindow({ mode: mode === 'compact' ? 'compact' : 'full', bounds });
   }
 
   // Poll for external windows and restore each as it appears

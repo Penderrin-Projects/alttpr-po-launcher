@@ -110,7 +110,8 @@ svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1
 .chip-dot { width: 6px; height: 6px; border-radius: 3px; background: var(--text-faint); }
 .chip:has(input:checked) { color: var(--text-primary); }
 .chip:has(input:checked) .chip-dot { background: var(--accent-color); }
-.tool-row { display: flex; gap: 6px; padding: 0 20px 12px; flex-shrink: 0; }
+.tool-row { display: flex; gap: 5px; padding: 0 20px 12px; flex-shrink: 0; }
+.tool-row .btn.small { padding: 0 9px; }
 .tool-gap { flex: 1; }
 
 /* ---- Play ---- */
