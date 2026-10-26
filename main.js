@@ -129,8 +129,10 @@ function safeThemeName(name) {
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     // Rounded corners need a transparent frameless window; Electron can't resize those from
-    // the edges, so the launcher is a fixed 560x540 with a scrolling pack list.
-    width: 560,
+    // the edges, so the launcher is a fixed 476x540 with a scrolling pack list. The width is
+    // what the footer's button row needs (461px as of 2.7.1) plus a little slack — widen it
+    // again if a button is added there.
+    width: 476,
     height: 540,
     resizable: false,
     maximizable: false,
