@@ -15,6 +15,7 @@ const INVOKE_CHANNELS = new Set([
   'scan-packs', 'cancel-scan', 'scan-staging-folder',
   'launch-rom', 'save-layout',
   'open-tracker', 'open-tracker-settings', 'has-tracker-config', 'tracker-preset-source',
+  'open-race-timer',
   'set-theme',
   'minimize-window', 'maximize-window', 'close-window',
   'ap-romstart-get', 'ap-romstart-set',

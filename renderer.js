@@ -372,6 +372,11 @@ btnLaunchTracker.addEventListener('click', async () => {
   setStatus('Tracker launched', 'success');
 });
 
+document.getElementById('btn-race-timer').addEventListener('click', async () => {
+  await ipcRenderer.invoke('open-race-timer');
+  setStatus('Race timer opened', 'success');
+});
+
 btnTrackerSettings.addEventListener('click', () => {
   ipcRenderer.invoke('open-tracker-settings');
   setStatus('Tracker settings opened', 'success');

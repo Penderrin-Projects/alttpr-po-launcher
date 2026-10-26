@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PO Race Timer</title>
+  <link rel="stylesheet" href="racetimer.css">
+  <!-- Same theme table the launcher and tracker use; main.js pushes applyPoTheme() on load. -->
+  <script src="../tracker/js/po-themes.js"></script>
+</head>
+<body>
+
+  <header class="top">
+    <div class="top-title">
+      <span class="eyebrow">RACE TIMER</span>
+      <span class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">Not connected</span></span>
+    </div>
+    <div class="top-right">
+      <span class="top-meta" id="room-meta"></span>
+      <button class="btn small" id="btn-disconnect" hidden>Disconnect</button>
+    </div>
+  </header>
+
+  <!-- Connection -->
+  <section class="panel" id="connect-panel">
+    <div class="field-row">
+      <label>Server<input id="in-server" placeholder="archipelago.gg:38281" autocomplete="off" spellcheck="false"></label>
+      <label>Slot<input id="in-slot" placeholder="your player name" autocomplete="off" spellcheck="false"></label>
+      <label>Password<input id="in-password" type="password" placeholder="(if set)" autocomplete="off"></label>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="btn-connect">Connect</button>
+      <span class="hint">Use your own slot name. The timer joins as a text-only client, so it does not interfere with your game.</span>
+    </div>
+  </section>
+
+  <!-- Clock -->
+  <section class="clock-wrap">
+    <div class="clock" id="clock">0:00:00<span class="frac">.00</span></div>
+    <div class="clock-sub" id="clock-sub">Connect to a room to begin</div>
+  </section>
+
+  <!-- Host controls -->
+  <section class="panel" id="host-panel" hidden>
+    <div class="row">
+      <label class="inline">Countdown<input id="in-countdown" type="number" min="0" max="60" value="10"><span class="unit">s</span></label>
+      <button class="btn primary" id="btn-start">Start race</button>
+      <button class="btn" id="btn-start-now" title="Record the start right now, no countdown">Start now</button>
+      <span class="spacer"></span>
+      <button class="btn danger" id="btn-reset" title="Clear the start time and every result for this seed">Reset</button>
+    </div>
+    <div class="row">
+      <label class="chip"><input type="checkbox" id="chk-announce" checked><span class="chip-dot"></span>Announce in chat</label>
+      <span class="hint">Posts "race started" and each finish to the room, so players without the launcher see it in their client.</span>
+    </div>
+  </section>
+
+  <!-- Viewer banner -->
+  <section class="panel viewer" id="viewer-panel" hidden>
+    <div class="row">
+      <span id="viewer-text">Waiting for a host…</span>
+      <span class="spacer"></span>
+      <button class="btn" id="btn-host">Host this race</button>
+    </div>
+  </section>
+
+  <!-- Players -->
+  <section class="panel" id="players-panel" hidden>
+    <table class="players">
+      <thead><tr><th>Player</th><th>Game</th><th>Status</th><th class="num">Time</th><th class="actions"></th></tr></thead>
+      <tbody id="players-body"></tbody>
+    </table>
+  </section>
+
+  <!-- Results -->
+  <section class="panel results" id="results-panel" hidden>
+    <div class="row">
+      <span class="eyebrow">RESULTS</span>
+      <span class="spacer"></span>
+      <button class="btn small" id="btn-copy">Copy</button>
+    </div>
+    <ol class="results-list" id="results-list"></ol>
+  </section>
+
+  <footer class="log" id="log"></footer>
+
+  <script src="racetimer.js"></script>
+</body>
+</html>
