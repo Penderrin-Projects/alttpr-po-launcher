@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, screen, net } = require('ele
 const path = require('path');
 const fs = require('fs');
 const { exec, execSync, spawn } = require('child_process');
+const zlib = require('zlib');
 
 // ============================================================
 //  SETTINGS
@@ -196,6 +197,66 @@ function openTrackerWindow() {
   trackerWindow.webContents.on('did-finish-load', () => {
     const theme = loadSettings().theme || 'amber';
     trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
+  });
+
+  return 'open';
+}
+
+// ============================================================
+//  RACE TIMER — Archipelago multiworld race stopwatch
+// ============================================================
+// A plain page (racetimer/racetimer.html) that talks to the Archipelago room over WebSocket
+// from the renderer itself, so it needs no preload and no IPC — only a window to live in.
+// Bounds are saved the same way as the tracker's, so it reopens where it was left.
+let raceTimerWindow = null;
+
+function saveRaceTimerBounds() {
+  if (!raceTimerWindow || raceTimerWindow.isDestroyed()) return;
+  if (raceTimerWindow.isMinimized()) return;
+  saveSettings({ raceTimerBounds: raceTimerWindow.getBounds() });
+}
+
+function openRaceTimerWindow() {
+  if (raceTimerWindow && !raceTimerWindow.isDestroyed()) {
+    raceTimerWindow.focus();
+    return 'open';
+  }
+
+  const settings = loadSettings();
+  const bounds = getSafeTrackerBounds(settings.raceTimerBounds);
+
+  raceTimerWindow = new BrowserWindow({
+    width: bounds ? bounds.width : 580,
+    height: bounds ? bounds.height : 640,
+    x: bounds ? bounds.x : undefined,
+    y: bounds ? bounds.y : undefined,
+    minWidth: 440,
+    minHeight: 420,
+    resizable: true,
+    title: 'PO Race Timer',
+    icon: path.join(__dirname, 'icon.ico'),
+    autoHideMenuBar: true,
+    backgroundColor: '#141517',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+  });
+
+  raceTimerWindow.setMenuBarVisibility(false);
+  // The room of the last .aplttp launched rides along as the query string (see rememberApRoom).
+  const room = settings.apRoom || {};
+  const query = room.slot ? { server: room.server || '', slot: room.slot, file: room.file || '' } : {};
+  raceTimerWindow.loadFile(path.join(__dirname, 'racetimer', 'racetimer.html'), { query });
+
+  raceTimerWindow.on('resize', saveRaceTimerBounds);
+  raceTimerWindow.on('move', saveRaceTimerBounds);
+  raceTimerWindow.on('closed', () => { raceTimerWindow = null; });
+
+  raceTimerWindow.webContents.on('did-finish-load', () => {
+    const theme = loadSettings().theme || 'amber';
+    raceTimerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
   });
 
   return 'open';
@@ -622,6 +683,63 @@ ipcMain.handle('scan-staging-folder', (_e, folderPath) => {
 });
 
 // ============================================================
+//  Archipelago patch manifest — which room does this seed belong to?
+// ============================================================
+// An .aplttp is an ordinary zip with an archipelago.json manifest inside. It names the
+// player's slot ("player_name") and, when the patch came from a hosted room page, the room's
+// host:port ("server"; empty for self-hosted seeds). The race timer fills itself in from it.
+// Walk the central directory from the end of the file and inflate just that one entry; no
+// zip library needed for a 200-byte JSON file.
+function readApPatchManifest(file) {
+  try {
+    const buf = fs.readFileSync(file);
+    // End-of-central-directory record: signature 0x06054b50, within the last 64 KiB + 22 bytes.
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+      if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) return null;
+    const count = buf.readUInt16LE(eocd + 10);
+    let p = buf.readUInt32LE(eocd + 16);
+    for (let n = 0; n < count && p + 46 <= buf.length; n++) {
+      if (buf.readUInt32LE(p) !== 0x02014b50) break;
+      const method = buf.readUInt16LE(p + 10);
+      const csize = buf.readUInt32LE(p + 20);
+      const nameLen = buf.readUInt16LE(p + 28), extraLen = buf.readUInt16LE(p + 30), commentLen = buf.readUInt16LE(p + 32);
+      const localOff = buf.readUInt32LE(p + 42);
+      const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+      if (name === 'archipelago.json' || name.endsWith('/archipelago.json')) {
+        if (buf.readUInt32LE(localOff) !== 0x04034b50) return null;
+        const start = localOff + 30 + buf.readUInt16LE(localOff + 26) + buf.readUInt16LE(localOff + 28);
+        const raw = buf.subarray(start, start + csize);
+        const data = method === 8 ? zlib.inflateRawSync(raw) : method === 0 ? raw : null;
+        return data ? JSON.parse(data.toString('utf8')) : null;
+      }
+      p += 46 + nameLen + extraLen + commentLen;
+    }
+  } catch { /* not a zip (old-style patch) or unreadable — the timer simply stays blank */ }
+  return null;
+}
+
+// Remember the room a seed belongs to, and hand it to the race timer if it is open.
+function rememberApRoom(patchFile) {
+  const m = readApPatchManifest(patchFile);
+  if (!m || typeof m.player_name !== 'string' || !m.player_name) return null;
+  const room = {
+    server: typeof m.server === 'string' ? m.server : '',
+    slot: m.player_name,
+    game: typeof m.game === 'string' ? m.game : '',
+    file: path.basename(patchFile),
+    at: Date.now(),
+  };
+  saveSettings({ apRoom: room });
+  if (raceTimerWindow && !raceTimerWindow.isDestroyed()) {
+    raceTimerWindow.webContents.executeJavaScript(`if(typeof applyPoRoomHint==='function'){applyPoRoomHint(${JSON.stringify(room)})}`).catch(() => {});
+  }
+  return room;
+}
+
+// ============================================================
 //  Archipelago host.yaml — who starts the ROM?
 // ============================================================
 // For .aplttp seeds the launcher starts the emulator itself (that is how it can pass --lua=
@@ -835,6 +953,7 @@ ipcMain.handle('tracker-scan', async () => {
 //  IPC — Tracker Windows
 // ============================================================
 ipcMain.handle('open-tracker', () => openTrackerWindow());
+ipcMain.handle('open-race-timer', () => openRaceTimerWindow());
 ipcMain.handle('open-tracker-settings', () => { openSettingsWindow(); });
 // The tracker preset the launcher ships with. It is Anthony's own: standard open-mode
 // settings, autotracking through SNI on localhost:23074, Link sprite. A preset the user saves
@@ -856,6 +975,9 @@ ipcMain.handle('set-theme', (event, themeName) => {
   }
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.webContents.executeJavaScript(js).catch(() => {});
+  }
+  if (raceTimerWindow && !raceTimerWindow.isDestroyed()) {
+    raceTimerWindow.webContents.executeJavaScript(js).catch(() => {});
   }
   // Also save to settings so tracker windows opened later use it
   saveSettings({ theme: themeName });
@@ -1246,6 +1368,7 @@ ipcMain.handle('launch-rom', async (_e, {
       // Opening it launches Archipelago, which generates an .sfc in the same folder.
       // We poll for the new .sfc, then launch emulator + companions.
       shell.openPath(destRom);
+      rememberApRoom(destRom);
 
       // Launch timer
       if (launchTimer && timerPath) {

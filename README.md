@@ -23,6 +23,12 @@ You don't need a pack at all: **Original soundtrack** is always the first entry,
 
 The launcher tells you when a newer release exists. Set `"checkForUpdates": false` in `%APPDATA%\alttpr-po-launcher\po-launcher-settings.json` to turn that off.
 
+### Race timer (Archipelago multiworld)
+
+**Race timer** opens a stopwatch for a multiworld race, so nobody has to run LiveSplit separately. The room address and your slot name are filled in from the last `.aplttp` you launched (the patch carries both when it was downloaded from a hosted room page; a self-hosted seed only carries the slot name, so type the address once and it is remembered). The window joins as a text-only client next to your game. One person presses **Host this race** and holds the stopwatch: **Start race** sends `!countdown` to the room and the start is recorded when the server says GO (or use **Start now**). Every player's finish is recorded the moment their client reports the goal, and the host can **DNF** a player, **Finish now** for someone whose client dropped, or **Set time…** by hand. Once everyone is accounted for, a results board appears with a **Copy** button.
+
+Players don't need the launcher. The host posts the start and each finish to the room chat, so they see it in their Archipelago client. Anyone who *does* have the launcher and opens the timer sees the host's clock and results live (the record is kept in the room's data storage, so it also survives the host closing the window). Disconnects and reconnects never touch the times.
+
 ### One-time setup on a fresh PC
 
 | What | Why |
