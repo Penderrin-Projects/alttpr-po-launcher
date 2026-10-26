@@ -63,6 +63,8 @@ input {
 }
 input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 2px var(--accent-glow); }
 input[type=number] { width: 56px; font-family: var(--mono); text-align: right; }
+label.session input { width: 110px; font-family: var(--mono); }
+.compact label.session { display: none; }
 
 .btn { height: 28px; padding: 0 12px; border: 1px solid var(--theme-border-light); border-radius: 3px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .btn:hover { color: var(--text-primary); border-color: var(--text-muted); }
@@ -73,6 +75,10 @@ input[type=number] { width: 56px; font-family: var(--mono); text-align: right; }
 .btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn.danger { color: var(--red); }
 .btn.danger:hover { border-color: var(--red); }
+.btn.icon { width: 26px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.btn.icon svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linejoin: round; }
+.btn.active { border-color: var(--accent-color); color: var(--accent-color); background: var(--accent-glow); }
+.btn.active svg { fill: var(--accent-color); stroke: var(--accent-color); }
 
 .chip { flex-direction: row; align-items: center; gap: 6px; cursor: pointer; font-size: 11px; letter-spacing: 0.06em; color: var(--text-secondary); }
 .chip input { position: absolute; opacity: 0; width: 0; height: 0; }
@@ -116,6 +122,25 @@ tr.provisional td.num { color: var(--text-muted); font-style: italic; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--theme-border-light); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* Compact mode: clock and player list only; the window is sized to this content by main.
+   A click on Full brings everything back. */
+html.compact, html.compact body { height: auto; min-height: 0; }
+.compact body { padding: 8px 10px 10px; gap: 6px; overflow: hidden; }
+.compact .top-meta, .compact #btn-disconnect { display: none !important; }
+.compact .top-title { gap: 8px; }
+.compact .conn span:last-child { display: none; }     /* just the dot */
+.compact #connect-panel .field-row { grid-template-columns: 1fr; }
+.compact #connect-panel .hint { display: none; }
+.compact #host-panel, .compact #viewer-panel, .compact #results-panel, .compact .log { display: none !important; }
+.compact .clock-wrap { padding: 2px 0 0; }
+.compact .clock { font-size: 36px; }
+.compact .clock-sub { margin-top: 3px; font-size: 10px; }
+.compact #players-panel { padding: 4px 8px; }
+.compact table.players thead { display: none; }
+.compact table.players td { padding: 3px 4px; font-size: 12px; }
+.compact table.players td.game, .compact table.players td.actions { display: none; }
+.compact table.players tr:first-child td { border-top: 0; }
 
 /* Log */
 .log { margin-top: auto; padding-top: 6px; border-top: 1px solid var(--theme-border); font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); max-height: 76px; overflow-y: auto; user-select: text; line-height: 1.5; }

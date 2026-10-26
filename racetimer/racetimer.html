@@ -17,6 +17,8 @@
     <div class="top-right">
       <span class="top-meta" id="room-meta"></span>
       <button class="btn small" id="btn-disconnect" hidden>Disconnect</button>
+      <button class="btn small icon" id="btn-pin" title="Keep this window on top of the game" aria-label="Keep on top"><svg viewBox="0 0 14 14"><path d="M8.5 1.5l4 4-1.5.5-2.2 2.2.4 2.8-1.2 1.2L5.2 9.4 2 12.6l-.6-.6L4.6 8.8 1.8 6l1.2-1.2 2.8.4L8 3l.5-1.5z"/></svg></button>
+      <button class="btn small" id="btn-compact" title="Switch between the full window and a small clock + player list">Compact</button>
     </div>
   </header>
 
@@ -29,6 +31,7 @@
     </div>
     <div class="row">
       <button class="btn primary" id="btn-connect">Connect</button>
+      <label class="inline session" title="Friends using the 'Archipelago Timer and Stat Tracker' app: a race started there starts here too when the session name matches theirs (and theirs follows this timer's countdown).">Timer-app session<input id="in-session" placeholder="main" maxlength="48" autocomplete="off" spellcheck="false"></label>
       <span class="hint">Use your own slot name. The timer joins as a text-only client, so it does not interfere with your game.</span>
     </div>
   </section>
