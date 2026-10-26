@@ -63,6 +63,8 @@ input {
 }
 input:focus { outline: none; border-color: var(--accent-color); box-shadow: 0 0 0 2px var(--accent-glow); }
 input[type=number] { width: 56px; font-family: var(--mono); text-align: right; }
+label.session input { width: 110px; font-family: var(--mono); }
+.compact label.session { display: none; }
 
 .btn { height: 28px; padding: 0 12px; border: 1px solid var(--theme-border-light); border-radius: 3px; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 .btn:hover { color: var(--text-primary); border-color: var(--text-muted); }

@@ -17,6 +17,17 @@
 //   reads the current record. The record also lives in the server's save, so it survives
 //   everyone closing. Players without the launcher see the host's chat announcements instead.
 //
+//   Times are kept on the SERVER's clock: RoomInfo carries the server time, every window
+//   anchors to it on connect, and start/finish stamps are server milliseconds. So two PCs
+//   whose Windows clocks disagree by a couple of seconds still show the same running clock,
+//   and the numbers line up with the "Archipelago Timer and Stat Tracker" app, which does
+//   the same.
+//
+//   That app (JC's) keeps its race start in the room's data storage too, under a key made
+//   from the seed, team and a shared session name. This window watches that key, so a race
+//   started from his app starts here as well; his app already follows the room !countdown,
+//   so a race started here starts there.
+//
 // Protocol used (docs/network protocol.md in the Archipelago repo):
 //   RoomInfo → Connect(tags TextOnly) → Connected / ConnectionRefused
 //   PrintJSON type Countdown / Goal        Say "!countdown N"
@@ -27,9 +38,11 @@
   const $ = (id) => document.getElementById(id);
   const STORE_KEY_PREFIX = 'po_race:';            // room data-storage key, one per seed
   const CLIENT_STATUS_GOAL = 30;                  // ClientStatus.CLIENT_GOAL
+  const FRIEND_KEY_PREFIX = 'ap_timer_stats_v1_'; // JC's app: prefix + sha256([seed, team, session])[:32]
+  const FRIEND_APP = 'AP Timer app';
   const LS = {                                     // localStorage keys (shared with other windows: same file:// origin)
     server: 'poRaceServer', slot: 'poRaceSlot', uuid: 'poRaceUuid',
-    countdown: 'poRaceCountdown', announce: 'poRaceAnnounce',
+    countdown: 'poRaceCountdown', announce: 'poRaceAnnounce', session: 'poRaceSession',
   };
 
   // ---------------------------------------------------------------- state
@@ -50,18 +63,34 @@
   let players = [];                 // [{ key, team, slot, name, alias, game }]
   const playerByKey = new Map();
 
+  // Server clock. RoomInfo.time is the server's wall clock in seconds; from then on
+  // serverNow() = that + how long this page has been running since, which a PC clock that is
+  // off by minutes cannot disturb.
+  let anchor = null;                // { server: ms, local: performance.now() }
+  const serverNow = () => Math.round(anchor ? anchor.server + (performance.now() - anchor.local) : Date.now());
+
+  // JC's "Archipelago Timer and Stat Tracker": its race record for this seed/team/session.
+  let friendKey = null;
+  let friendRun = null;             // { startedAt (server ms), players, ... } once his app has a start
+  let externalStart = null;         // his start shown by a viewer while this record has no host yet
+
   // The race record. Shape is what gets written to the server, so keep it plain JSON.
+  //   v:         2 = times are server milliseconds (1 = the host's local clock, pre-2.7.1)
   //   host:      { uuid, name }            who holds the stopwatch
-  //   startedAt: ms epoch on the host's clock, or null
+  //   startedAt: server ms, or null; may be a few seconds in the future when it came from
+  //              JC's app, which schedules its start at the end of its countdown
   //   results:   { "team-slot": { status: 'finished'|'dnf', finishedAt, elapsed, source, note } }
   let race = freshRace();
   let armed = false;                // host pressed Start and is waiting for the countdown to hit 0
   const provisional = new Map();    // viewer-side Goal stamps shown until the host's record lands
 
-  function freshRace() { return { v: 1, host: null, startedAt: null, results: {}, updatedAt: 0 }; }
+  function freshRace() { return { v: 2, host: null, startedAt: null, results: {}, updatedAt: 0 }; }
   const isHost = () => !!(race.host && race.host.uuid === myUuid);
   const storeKey = () => STORE_KEY_PREFIX + (room.seed || 'unknown');
   const keyOf = (team, slot) => `${team}-${slot}`;
+  // "now" on the same clock the current record uses (an old v1 record is in local time)
+  const raceNow = () => (race.v >= 2 ? serverNow() : Date.now());
+  const startAt = () => race.startedAt ?? externalStart;   // what the running clock counts from
 
   // ---------------------------------------------------------------- helpers
   function log(text, isErr) {
@@ -137,6 +166,7 @@
     if (!serverText.trim() || !slot) { log('Server and slot name are both needed.', true); return; }
     localStorage.setItem(LS.server, serverText.trim());
     localStorage.setItem(LS.slot, slot);
+    localStorage.setItem(LS.session, $('in-session').value.trim());
     wantConnected = true;
     candidates = urlCandidates(serverText);
     tryNext();
@@ -199,6 +229,7 @@
       case 'RoomInfo':
         room.seed = m.seed_name || null;
         room.version = m.version;
+        if (Number.isFinite(m.time)) anchor = { server: m.time * 1000, local: performance.now() };
         sendConnect();
         break;
 
@@ -219,6 +250,7 @@
         // Pull the current record and subscribe to changes.
         send({ cmd: 'SetNotify', keys: [storeKey()] });
         send({ cmd: 'Get', keys: [storeKey(), ...players.map((p) => `_read_client_status_${p.team}_${p.slot}`)] });
+        watchFriendApp();
         break;
 
       case 'RoomUpdate':
@@ -235,9 +267,40 @@
 
       case 'SetReply':
         if (m.key === storeKey()) adoptRemote(m.value);
+        else if (friendKey && m.key === friendKey) onFriendRun(m.value);
         break;
     }
     render();
+  }
+
+  // ---------------------------------------------------------------- JC's timer app
+  // Same key his app derives: prefix + sha256(JSON.stringify([seed, team, session]))[:32],
+  // session lower-cased. Only read, never written: his app validates that record strictly
+  // and would drop its connection over a field it doesn't expect.
+  async function watchFriendApp() {
+    friendKey = null; friendRun = null; externalStart = null;
+    const session = ($('in-session').value || '').trim().toLowerCase();
+    if (!session || !room.seed || me.team == null || !crypto.subtle) return;
+    try {
+      const data = new TextEncoder().encode(JSON.stringify([room.seed, me.team, session]));
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)), (b) => b.toString(16).padStart(2, '0')).join('');
+      friendKey = FRIEND_KEY_PREFIX + hash.slice(0, 32);
+      send({ cmd: 'SetNotify', keys: [friendKey] });
+      send({ cmd: 'Get', keys: [friendKey] });
+    } catch (e) { log(`Could not watch the ${FRIEND_APP}: ${e.message}`, true); }
+  }
+
+  function onFriendRun(value) {
+    if (!value || typeof value !== 'object' || value.schema !== 1 || !Number.isFinite(value.startedAt) || value.startedAt <= 0) return;
+    if (value.seed !== room.seed || value.team !== me.team) return;
+    if (friendRun && friendRun.startedAt === value.startedAt) return;   // same start, nothing new
+    friendRun = value;
+    const who = value.createdBy != null ? nameOf(keyOf(value.team, value.createdBy)) : 'someone';
+    const inMs = value.startedAt - serverNow();
+    const when = inMs > 500 ? `in ${Math.ceil(inMs / 1000)}s` : 'already';
+    if (race.startedAt) { log(`${FRIEND_APP}: ${who} started a race ${when}; this one is already running.`); return; }
+    if (isHost()) startRace(value.startedAt, FRIEND_APP);
+    else { externalStart = value.startedAt; log(`${FRIEND_APP}: ${who} started the race (${when}). Host here to record results.`); }
   }
 
   function setPlayers(list, slotInfo) {
@@ -259,20 +322,21 @@
     if (m.type === 'Countdown') {
       const n = m.countdown;
       $('clock-sub').textContent = n > 0 ? `COUNTDOWN  ${n}` : 'GO';
-      if (n === 0 && isHost() && armed) startRace(Date.now(), 'countdown');
+      if (n === 0 && isHost() && armed) startRace(serverNow(), 'countdown');
       return;
     }
     if (m.type === 'Goal') {
       const key = keyOf(m.team, m.slot);
-      const now = Date.now();
+      const now = serverNow();
       if (isHost()) recordFinish(key, now, 'goal');
-      else if (race.startedAt && !race.results[key]) provisional.set(key, now - race.startedAt);
+      else if (startAt() && !race.results[key]) provisional.set(key, now - startAt());
       log(`${nameOf(key)} reached their goal.`);
     }
   }
 
   function onRetrieved(keys) {
     if (Object.prototype.hasOwnProperty.call(keys, storeKey())) adoptRemote(keys[storeKey()]);
+    if (friendKey && Object.prototype.hasOwnProperty.call(keys, friendKey)) onFriendRun(keys[friendKey]);
     // Anyone already at goal when we joined (host reconnecting after a drop, say) — flag them
     // so the host can set the time by hand instead of them silently showing as still running.
     if (isHost()) {
@@ -295,6 +359,7 @@
       provisional.clear();
       return;
     }
+    if (value.startedAt) externalStart = null;    // the record has its own start now
     if (value.host && value.host.uuid === myUuid) {
       // Our own record coming back: the reply to a write, or a restore after the window was
       // reopened. If we changed things while the connection was down, ours is newer — push it.
@@ -327,7 +392,7 @@
     if (race.startedAt) { log('Race already started. Reset first to start again.', true); return; }
     const n = Math.max(0, Math.min(60, parseInt($('in-countdown').value, 10) || 0));
     localStorage.setItem(LS.countdown, String(n));
-    if (n === 0) { startRace(Date.now(), 'manual'); return; }
+    if (n === 0) { startRace(serverNow(), 'manual'); return; }
     armed = true;
     send({ cmd: 'Say', text: `!countdown ${n}` });
     $('clock-sub').textContent = 'COUNTDOWN SENT — starts on GO';
@@ -341,17 +406,26 @@
   function startRace(at, how) {
     armed = false;
     clearTimeout(countdownWatchdog);
+    race.v = 2;
     race.startedAt = at;
+    externalStart = null;
     // A Goal that arrived before this moment keeps elapsed = null ("before start"); the host sets it by hand.
     publish();
-    say('GO! Race started.');
-    log(`Race started (${how}).`);
+    const inMs = at - serverNow();
+    if (inMs > 500) {                              // scheduled start (from JC's app): announce the moment, not GO
+      say(`Race starts in ${Math.ceil(inMs / 1000)}s (${how}).`);
+      log(`Race start set ${Math.ceil(inMs / 1000)}s from now (${how}).`);
+    } else {
+      say('GO! Race started.');
+      log(`Race started (${how}).`);
+    }
   }
 
   function recordFinish(key, at, source) {
     if (race.results[key] && race.results[key].status === 'finished' && race.results[key].elapsed != null) return; // already have a time
-    const elapsed = race.startedAt ? at - race.startedAt : null;
-    race.results[key] = { status: 'finished', finishedAt: at, elapsed, source, note: race.startedAt ? '' : 'before start' };
+    const started = race.startedAt && at >= race.startedAt;
+    const elapsed = started ? at - race.startedAt : null;
+    race.results[key] = { status: 'finished', finishedAt: at, elapsed, source, note: started ? '' : 'before start' };
     publish();
     const place = placeOf(key);
     say(elapsed != null ? `${nameOf(key)} finished — ${fmt(elapsed)}${place ? ` (${ordinal(place)})` : ''}` : `${nameOf(key)} finished (before the start was recorded)`);
@@ -371,7 +445,7 @@
   }
 
   function markDnf(key) {
-    race.results[key] = { status: 'dnf', finishedAt: Date.now(), elapsed: null, source: 'manual', note: '' };
+    race.results[key] = { status: 'dnf', finishedAt: serverNow(), elapsed: null, source: 'manual', note: '' };
     publish();
     say(`${nameOf(key)} — DNF`);
     maybeAnnounceFinal();
@@ -389,6 +463,7 @@
     race.host = { uuid: myUuid, name: me.name };
     armed = false;
     provisional.clear();
+    externalStart = null;                          // a start already seen from JC's app is not re-adopted
     publish();
     log('Race reset.');
   }
@@ -429,26 +504,35 @@
   }
 
   // ---------------------------------------------------------------- render
+  // A start can sit a few seconds in the future (JC's app schedules its start at the end of
+  // its countdown); until then the clock holds at zero and the sub-line counts down.
+  const startsIn = () => { const s = startAt(); return s && s > raceNow() ? Math.ceil((s - raceNow()) / 1000) : 0; };
+
   function tickClock() {
     const clock = $('clock');
-    const now = Date.now();
+    const now = raceNow();
+    const start = startAt();
     let ms = 0;
-    if (race.startedAt) {
+    if (start) {
       const s = standings();
-      ms = allDone()
+      ms = race.startedAt && allDone()
         ? (s.finished.length ? s.finished[s.finished.length - 1].r.elapsed : 0)   // frozen at the last finish
-        : now - race.startedAt;
+        : now - start;
     }
     const text = fmt(ms);
     const dot = text.lastIndexOf('.');
     clock.innerHTML = `${text.slice(0, dot)}<span class="frac">${text.slice(dot)}</span>`;
-    clock.className = 'clock' + (armed ? ' armed' : allDone() && race.startedAt ? ' done' : '');
+    clock.className = 'clock' + (armed || startsIn() ? ' armed' : allDone() && race.startedAt ? ' done' : '');
+    if (startsIn()) $('clock-sub').textContent = `STARTS IN ${startsIn()}`;
+    else if (lastSubWasCountdown) { lastSubWasCountdown = false; render(); return; }
+    lastSubWasCountdown = !!startsIn();
     // Live times in the table without re-rendering the rows
     for (const p of players) {
       const cell = document.querySelector(`[data-live="${p.key}"]`);
-      if (cell && race.startedAt) cell.textContent = fmt(now - race.startedAt, false);
+      if (cell && start) cell.textContent = fmt(now - start, false);
     }
   }
+  let lastSubWasCountdown = false;
 
   function render() {
     const connected = !!(ws && ws.readyState === WebSocket.OPEN && me.team != null);
@@ -471,6 +555,8 @@
     // Sub-line under the clock
     if (!connected) $('clock-sub').textContent = wantConnected ? 'Connecting…' : 'Connect to a room to begin';
     else if (armed) { /* countdown text is written by onPrint */ }
+    else if (startsIn()) $('clock-sub').textContent = `STARTS IN ${startsIn()}`;
+    else if (!race.startedAt && externalStart) $('clock-sub').textContent = `RUNNING (${FRIEND_APP}) — host here to record`;
     else if (!race.startedAt) $('clock-sub').textContent = isHost() ? (compact ? 'READY — Full view to start' : 'READY — press Start race') : 'WAITING FOR HOST';
     else if (allDone()) $('clock-sub').textContent = 'RACE OVER';
     else { const s = standings(); $('clock-sub').textContent = `RUNNING — ${s.open.length} still going`; }
@@ -491,7 +577,7 @@
         if (r.note) status += ` (${r.note})`;
       }
       else if (prov != null) { status = 'Finished · awaiting host'; time = fmt(prov); cls = 'provisional'; }
-      else if (race.startedAt) { status = 'Running'; time = ''; cls = 'running'; }
+      else if (startAt()) { status = 'Running'; time = ''; cls = 'running'; }
       else { status = 'Waiting'; time = '—'; cls = ''; }
       tr.className = cls;
       const liveAttr = cls === 'running' ? ` data-live="${p.key}"` : '';
@@ -499,7 +585,7 @@
       if (isHost()) {
         const act = tr.querySelector('.actions');
         if (!r) {
-          act.appendChild(mkBtn('Finish now', () => recordFinish(p.key, Date.now(), 'manual'), !race.startedAt));
+          act.appendChild(mkBtn('Finish now', () => recordFinish(p.key, serverNow(), 'manual'), !race.startedAt || !!startsIn()));
           act.appendChild(mkBtn('Set time…', () => setTimeByHand(p.key)));
           act.appendChild(mkBtn('DNF', () => markDnf(p.key)));
         } else {
@@ -588,15 +674,16 @@
   // ---------------------------------------------------------------- wiring
   $('in-server').value = localStorage.getItem(LS.server) || '';
   $('in-slot').value = localStorage.getItem(LS.slot) || '';
+  $('in-session').value = localStorage.getItem(LS.session) ?? 'main';
   $('in-countdown').value = localStorage.getItem(LS.countdown) || '10';
   $('chk-announce').checked = localStorage.getItem(LS.announce) !== '0';
   $('chk-announce').addEventListener('change', (e) => localStorage.setItem(LS.announce, e.target.checked ? '1' : '0'));
 
   $('btn-connect').addEventListener('click', () => (wantConnected ? disconnect() : connect()));
-  for (const id of ['in-server', 'in-slot', 'in-password']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
+  for (const id of ['in-server', 'in-slot', 'in-password', 'in-session']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') connect(); });
   $('btn-host').addEventListener('click', becomeHost);
   $('btn-start').addEventListener('click', armStart);
-  $('btn-start-now').addEventListener('click', () => isHost() && !race.startedAt && startRace(Date.now(), 'manual'));
+  $('btn-start-now').addEventListener('click', () => isHost() && !race.startedAt && startRace(serverNow(), 'manual'));
   $('btn-reset').addEventListener('click', resetRace);
   $('btn-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(resultsText()); log('Results copied.'); }

@@ -29,6 +29,10 @@ The launcher tells you when a newer release exists. Set `"checkForUpdates": fals
 
 Players don't need the launcher. The host posts the start and each finish to the room chat, so they see it in their Archipelago client. Anyone who *does* have the launcher and opens the timer sees the host's clock and results live (the record is kept in the room's data storage, so it also survives the host closing the window). Disconnects and reconnects never touch the times.
 
+All times are on the **server's clock** (every window anchors to it when it connects), so two PCs whose Windows clocks disagree still show the same running clock, and finish times are the same everywhere.
+
+Friends who use the separate **Archipelago Timer and Stat Tracker** app: set **Timer-app session** to the session name they use (its default is `main`). A race they start there starts here too, counting down to their scheduled start; a countdown started here already starts theirs, because their app follows the room's `!countdown`. (Their app also reads goal completions from the room, so results match.)
+
 **Compact** shrinks the window to the clock and the player list, sized to fit, for while you play; **Full** brings the controls back. Each mode remembers its own position and size, and the pin keeps the window above the game. **Save SFC layout** / **Save AP layout** include the timer window (with its mode) when it is open, so launching a seed brings it back where it was.
 
 ### One-time setup on a fresh PC
