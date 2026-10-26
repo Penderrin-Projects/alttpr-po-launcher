@@ -47,7 +47,7 @@ jobs:
         run: |
           test -f "dist/win-unpacked/resources/WinHelper.exe" || { echo "::error::WinHelper.exe missing from resources"; exit 1; }
           npx --yes @electron/asar list dist/win-unpacked/resources/app.asar > asar.txt
-          for f in /main.js /preload.js /launcher-preload.js /renderer.html /renderer.js /styles.css /native/WinHelper.cs /tracker/tracker.html; do
+          for f in /main.js /preload.js /launcher-preload.js /renderer.html /renderer.js /styles.css /native/WinHelper.cs /tracker/tracker.html /racetimer/racetimer.html; do
             grep -qxF "$f" asar.txt || grep -qxF "${f//\//\\}" asar.txt || { echo "::error::$f missing from app.asar"; exit 1; }
           done
           test -f "dist/ALTTPR-PO-Launcher.exe" || { echo "::error::portable exe missing"; exit 1; }
