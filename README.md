@@ -71,7 +71,7 @@ Every pull request gets the same build + self-test, with the exe attached to the
 
 ### Self-test
 
-`PO_LAUNCHER_SELFTEST=<report.json>` makes the launcher boot against a throwaway profile, check the things that only break once packaged (preload present, helper shipped and runnable, the tracker's Launch page and tracker route render from `po://tracker/`), write a JSON report and exit `0`/`1`. It never touches real settings.
+`PO_LAUNCHER_SELFTEST=<report.json>` makes the launcher boot against a throwaway profile, check the things that only break once packaged (preload present, helper shipped and runnable, the tracker's Launch page and tracker route render from `po://tracker/`), write a JSON report and exit `0`/`1`. It never touches real settings. `PO_LAUNCHER_SELFTEST_SHOTS=<dir>` also saves screenshots of the windows it opened; `PO_LAUNCHER_SELFTEST_TAB=<tab name>` opens that Launch page tab first, `PO_LAUNCHER_SELFTEST_PREFS=<json>` seeds remembered tracker preferences, and `PO_LAUNCHER_SELFTEST_PROBE=<js>` evaluates an expression in the tracker window and reports it.
 
 ### Debug dumps
 
@@ -113,6 +113,8 @@ The pinned commit lives on the `po` branch of our fork, [Penderrin-Projects/altt
 - **Launcher colours** — `window.applyPoTheme(name)`, which main.js calls in every tracker window, recolours the tracker to the launcher's accent. Inert on the hosted tracker.
 - **`/tracker?last=1`** — a fresh session from whatever the Launch page launched last. That is how **Play** / **Tracker** open the tracker straight into the user's usual game; the Launch page (**Tracker setup**) is where it is changed.
 - **Scale above 1:1** — the tracker grows with its window (upstream stops at 1:1).
+- **Map marker size** — Tracker Settings slider, 50-200% of normal (default 100%), for the location markers on the maps.
+- **Launcher look** — inside the launcher the Launch page drops the site header, notices and footer, folds the preset categories into dropdowns and uses the launcher's fonts, radii and labels; the hosted tracker is unchanged.
 
 To update: in the fork, `git fetch upstream && git rebase upstream/react_rewrite` on `po`, push, then put the new sha in `tracker-source.json`. Upstream logic and preset fixes arrive with each bump.
 
