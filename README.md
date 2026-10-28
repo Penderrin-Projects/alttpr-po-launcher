@@ -15,6 +15,8 @@ A portable Windows launcher for *A Link to the Past Randomizer* and Archipelago 
 4. Drop a `.sfc` or `.aplttp` on the window, or put it in the staging folder, pick a music pack, press **Play**.
 5. Arrange your windows, then **Save Layout** (there is one layout for `.sfc` and one for `.aplttp`).
 
+An external timer (LiveSplit, say) is optional: tick the box next to **Timer** in Settings and browse to it, and a **TIMER** switch appears on the main screen for each launch. Untick it and no timer is started or restored; the AP Timer below is separate and always there.
+
 ### Music packs
 
 A pack is any folder with a `.msu` file directly inside it. Point the launcher at the folder that holds your packs; it looks up to three levels down, so `MSU\Zelda\<pack>\` works, and packs found deeper are listed as `Zelda / Pack name`. Pointing it straight at one pack folder works too. Unreadable folders (a drive's recycle bin, say) are skipped and counted. A scan can be cancelled from the pack list; whatever was found so far stays.

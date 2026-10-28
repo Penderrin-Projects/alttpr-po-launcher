@@ -235,6 +235,12 @@ function applyThemeTo(win) {
   win.webContents.executeJavaScript(`if (typeof window.applyPoTheme === 'function') window.applyPoTheme('${theme}'); true`).catch(() => {});
 }
 
+// The tracker's pages set their own <title> ("Muffins Tracker 2.0 - ..."); our windows keep the
+// names given above.
+function keepOurTitle(win) {
+  win.on('page-title-updated', (e) => e.preventDefault());
+}
+
 function trackerWebPreferences() {
   return { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') };
 }
@@ -263,12 +269,13 @@ function openTrackerWindow({ url = TRACKER_LAST_LAUNCH, reload = false, dims = n
     minWidth: 224,
     minHeight: 224,
     resizable: true,
-    title: 'ALTTP Tracker',
+    title: 'PO Tracker',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
     backgroundColor: '#242424',
     webPreferences: trackerWebPreferences(),
   });
+  keepOurTitle(trackerWindow);
   trackerWindow.setMenuBarVisibility(false);
   trackerWindow.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
   trackerWindow.loadURL(url);
@@ -301,12 +308,13 @@ function openTrackerPopout(kind, url, size) {
     y: saved ? saved.y : undefined,
     minWidth: 200,
     minHeight: 150,
-    title: kind === 'map' ? 'ALTTP Tracker - Map' : 'ALTTP Tracker - Event Log',
+    title: kind === 'map' ? 'PO Tracker - Map' : 'PO Tracker - Event Log',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
     backgroundColor: '#242424',
     webPreferences: trackerWebPreferences(),
   });
+  keepOurTitle(win);
   trackerPopouts[kind] = win;
   win.setMenuBarVisibility(false);
   win.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
@@ -489,13 +497,13 @@ function openSettingsWindow() {
     y: saved ? saved.y : undefined,
     minWidth: 720,
     minHeight: 540,
-    title: 'ALTTPR PO Tracker Settings',
+    title: 'PO Tracker - Setup',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
     backgroundColor: '#141517',
     webPreferences: trackerWebPreferences(),
   });
-
+  keepOurTitle(settingsWindow);
   settingsWindow.setMenuBarVisibility(false);
   settingsWindow.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
   settingsWindow.loadURL(TRACKER_LAUNCH_PAGE);
