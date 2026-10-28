@@ -11,7 +11,7 @@ A portable Windows launcher for *A Link to the Past Randomizer* and Archipelago 
 
    All three keep their settings and layouts in `%APPDATA%\alttpr-po-launcher`, so switching between them loses nothing.
 2. The first launch walks you through setup: emulator, SNI, timer, seeds folder, music packs, the tracker preset and layouts. Every step can be skipped; the guide is always available again from **Settings → Setup guide**, and it runs once as a quick check after each update.
-3. The tracker comes with a built-in preset. For a seed with different settings, click the small **↻** at the bottom of the tracker window (left of the autotracking status) once the game is running: it reads the seed through SNI and reloads the tracker with that seed's settings, without touching your preset. Or configure it yourself (Tracker → settings, then LAUNCH TRACKER), which saves a preset.
+3. The tracker is [Muffins Tracker 2.0](https://github.com/KrisDavie/alttptracker/tree/react_rewrite). Out of the box it opens in standard open mode with autotracking on. For anything else open **Tracker setup** (the tracker's own Launch page), pick a preset or set the game up yourself, and press **Launch**; from then on **Play** and **Tracker** open a fresh tracker with those settings. Autotracking needs SNI 0.0.96 or newer.
 4. Drop a `.sfc` or `.aplttp` on the window, or put it in the staging folder, pick a music pack, press **Play**.
 5. Arrange your windows, then **Save Layout** (there is one layout for `.sfc` and one for `.aplttp`).
 
@@ -52,11 +52,11 @@ The portable exe is slow to open because of how it works, not because of the app
 
 ```
 npm ci
-npm start          # run from source
-npm run build      # -> dist/ALTTPR-PO-Launcher.exe  (compiles native/WinHelper.cs first)
+npm start          # builds the tracker if needed, then runs from source
+npm run build      # -> dist/  (builds the tracker and native/WinHelper.cs first)
 ```
 
-`start.bat` does the install-and-run for you.
+The tracker is built from source by `scripts/build-tracker.js` (see below); it needs `git` and [bun](https://bun.sh) on the PATH (`npm i -g bun` works). `start.bat` does the install-and-run for you.
 
 ### Releasing
 
@@ -69,7 +69,7 @@ Every pull request gets the same build + self-test, with the exe attached to the
 
 ### Self-test
 
-`PO_LAUNCHER_SELFTEST=<report.json>` makes the launcher boot against a throwaway profile, check the things that only break once packaged (preload present, helper shipped and runnable, tracker page loads), write a JSON report and exit `0`/`1`. It never touches real settings.
+`PO_LAUNCHER_SELFTEST=<report.json>` makes the launcher boot against a throwaway profile, check the things that only break once packaged (preload present, helper shipped and runnable, the tracker's Launch page and tracker route render from `po://tracker/`), write a JSON report and exit `0`/`1`. It never touches real settings.
 
 ### Debug dumps
 
@@ -97,19 +97,26 @@ These were learned the hard way during the original build. Please read before "s
 - **The tracker is scaled with a CSS transform, not Electron zoom.** Electron zoom clipped the boss icons in the fixed-pixel layout.
 - **The tracker loads from `file://`, and must keep doing so.** It stores colours, logic settings and presets in `localStorage`; serving it from a custom scheme would change its origin and wipe them for every user. `webSecurity` is on: the three remote hosts it reads (`alttpr.racing`, two `alttpr-patch-data` S3 buckets) already send `Access-Control-Allow-Origin: *`, and all cross-window traffic is `postMessage`.
 - **The window is a fixed 476×540 with rounded corners.** Rounded corners on a frameless window need `transparent: true`, and Electron cannot resize transparent windows from their edges, so the launcher is not resizable; the pack list scrolls instead. Don't set `resizable: true` without also adding your own edge handles.
-- **Themes are one charcoal ground plus an accent** (`poThemes` in `renderer.js` and `tracker/js/po-themes.js` — keep both tables identical; the tracker windows read the same CSS variables). Pre-2.3.0 theme names are mapped in `LEGACY_THEMES`.
+- **Themes are one charcoal ground plus an accent** (`poThemes` in `renderer.js`, `src/lib/poTheme.ts` on the tracker fork's `po` branch and the table in `racetimer/racetimer.html` — keep the accents identical). Pre-2.3.0 theme names are mapped in `LEGACY_THEMES`.
 - **Restore matches an exact window title before a partial one, and skips hidden helper windows** (`GDI+ Window (...)`, `Default IME`, and so on). A short title like `LiveSplit` is a substring of that app's own hidden GDI+ window's title; matching that one moved a 1×1 invisible window and left the real one alone. After placing a window the helper watches it for three seconds and puts it back if the app moves or resizes itself on startup (a timer applying its own layout, for example). Both rules are generic; BizHawk's main window is still never touched.
 - **Settings live in memory** with debounced, atomic writes (the tracker saves its bounds on every move/resize event), which is why the launcher is single-instance.
 
-## The vendored tracker
+## The tracker
 
-`tracker/` is a snapshot of the community ALTTPR item tracker — Muffins' fork, [KrisDavie/alttptracker](https://github.com/KrisDavie/alttptracker), which continued the original dunka tracker — at upstream commit `9f753b3` (Build 2.2.010, 2 March 2026), with PO changes layered on top. The PO-specific files are `css/po-theme.css`, `css/po-theme-secondary.css`, `css/launcher.css` and `js/po-themes.js`, plus small hooks in `index.html`, `tracker.html`, `logic.html` and `colors.html`. To re-sync: diff upstream's new commit against the recorded one, apply the code files directly, and hand-apply any hunks that land in the PO-modified files (usually only cache-buster stamps). Upstream logic fixes do not arrive on their own.
+The tracker is **Muffins Tracker 2.0**, the React rewrite of the community tracker ([KrisDavie/alttptracker](https://github.com/KrisDavie/alttptracker), branch `react_rewrite`), which replaces the retired jQuery tracker the launcher vendored up to 2.7. It is not vendored any more: `scripts/build-tracker.js` builds it from the commit pinned in `tracker-source.json` into `tracker/` (ignored by git) during `npm start`, `npm run build` and CI.
 
-Dungeon prize markers start as the blue crystal rather than "?" (`js/po-prize-default.js`); the starting marker can be changed on the tracker settings page under Autotracking (`js/po-prize-setting.js`, saved to localStorage). Autotracking overwrites them with the real prize on collection, and clicking still cycles them.
+The pinned commit lives on the `po` branch of our fork, [Penderrin-Projects/alttptracker](https://github.com/Penderrin-Projects/alttptracker/tree/po): upstream `react_rewrite` plus a few commits of ours, described in that branch's `PO.md`:
 
-`js/po-import-fix.js` works around an upstream bug that made AUTO-CONFIGURE hang for alttpr.com seeds (the import field got a bare hash, which `importflags()` turns into `.../undefined.json`); it also reports a failed seed download in the status line. The ↻ scan takes only the seed-derived `f` and `s` parts of the result and keeps the running tracker's display settings.
+- **Default dungeon prize marker** — a remembered setting on the Launch page's Tracker Settings tab (blue crystal by default) for the marker drawn while a dungeon's prize is unknown. Only the picture changes; clicking still cycles from "?" and autotracking still writes the real prize.
+- **Launcher colours** — `window.applyPoTheme(name)`, which main.js calls in every tracker window, recolours the tracker to the launcher's accent. Inert on the hosted tracker.
+- **`/tracker?last=1`** — a fresh session from whatever the Launch page launched last. That is how **Play** / **Tracker** open the tracker straight into the user's usual game; the Launch page (**Tracker setup**) is where it is changed.
+- **Scale above 1:1** — the tracker grows with its window (upstream stops at 1:1).
 
-Known, harmless: the settings page logs `Cannot set properties of null (setting 'innerHTML')` — upstream's "upcoming race" code looking for an element the PO layout removed.
+To update: in the fork, `git fetch upstream && git rebase upstream/react_rewrite` on `po`, push, then put the new sha in `tracker-source.json`. Upstream logic and preset fixes arrive with each bump.
+
+How the launcher runs it: the build is a single-page app with real routes (`/` Launch page, `/tracker`, `/map`, `/event-log`), so main.js serves `tracker/` from its own `po://tracker/` scheme (any non-file path returns `index.html`) rather than `file://`. All tracker windows share that origin, so the tracker's sessions and remembered settings (IndexedDB / localStorage) are shared too. `window.open()` from a tracker page is turned into a top-level window of ours (`trackerWindowOpenHandler`), so the tracker no longer closes with the settings window. The tracker page reports its natural size (`preload.js`), and main.js shapes the window to it and locks the aspect ratio. Chromium's Local Network Access checks are disabled for the app so the tracker can reach SNI / QUsb2snes on localhost from that origin.
+
+Not carried over from the old tracker: the **↻ seed scan** (AUTO-CONFIGURE from the running ROM), which 2.0 does not have yet, and the alttpr.com flag import.
 
 ## License
 

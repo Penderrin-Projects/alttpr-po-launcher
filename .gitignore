@@ -1,5 +1,9 @@
 node_modules/
 dist/
+
+# the tracker is built from tracker-source.json by scripts/build-tracker.js
+tracker/
+build/
 *.log
 open_console.lua
 

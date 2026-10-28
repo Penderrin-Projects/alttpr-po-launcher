@@ -1,0 +1,6 @@
+{
+  "repo": "https://github.com/Penderrin-Projects/alttptracker.git",
+  "branch": "po",
+  "commit": "944987a7cd7c5cb6219fe9e9282b555a5db66221",
+  "upstream": "https://github.com/KrisDavie/alttptracker react_rewrite @ 7b5c142a2ec581eb7a154cb6d319cffefb6d0ee3 (Muffins Tracker 2.0 beta, 2026-10-20)"
+}
