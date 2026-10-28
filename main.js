@@ -654,6 +654,19 @@ async function runSelfTest() {
     if (process.env.PO_LAUNCHER_SELFTEST_PREFS) {
       await settingsWindow.webContents.executeJavaScript(`localStorage.setItem('muffins_launcher_prefs', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('muffins_launcher_prefs') || '{}'), ${process.env.PO_LAUNCHER_SELFTEST_PREFS}))); true`).catch(() => {});
     }
+    // PO_LAUNCHER_SELFTEST_LS=<json>: tracker localStorage entries (key -> value) to set before the tracker opens
+    if (process.env.PO_LAUNCHER_SELFTEST_LS) {
+      await settingsWindow.webContents.executeJavaScript(`(() => { const o = ${process.env.PO_LAUNCHER_SELFTEST_LS}; for (const k of Object.keys(o)) localStorage.setItem(k, typeof o[k] === 'string' ? o[k] : JSON.stringify(o[k])); return true; })()`).catch(() => {});
+      // ...and show the Launch page as it starts with those entries in place
+      settingsWindow.webContents.reload();
+      await loaded(settingsWindow);
+      await rendered(settingsWindow, `!!(document.getElementById('root') && document.getElementById('root').children.length)`);
+      if (process.env.PO_LAUNCHER_SELFTEST_TAB) {
+        await settingsWindow.webContents.executeJavaScript(`(() => { const t = [...document.querySelectorAll('[role="tab"]')].find(b => b.textContent.trim() === ${JSON.stringify(process.env.PO_LAUNCHER_SELFTEST_TAB)}); if (t) t.click(); return !!t; })()`).catch(() => {});
+      }
+      await new Promise(r => setTimeout(r, 500));
+      await shot(settingsWindow, 'launch-page-seeded.png');
+    }
     openTrackerWindow();
     await loaded(trackerWindow);
     const tracker = await rendered(trackerWindow,
