@@ -133,6 +133,8 @@ const luaScriptPathEl = document.getElementById('lua-script-path');
 const btnBrowseLuaScript = document.getElementById('btn-browse-lua-script');
 
 const chkTimer = document.getElementById('chk-timer');
+const chkUseTimer = document.getElementById('chk-use-timer');   // Settings: use an external timer at all
+const timerOption = document.getElementById('timer-option');     // the TIMER switch on the main screen
 const timerPathEl = document.getElementById('timer-path');
 const btnBrowseTimer = document.getElementById('btn-browse-timer');
 
@@ -235,6 +237,7 @@ async function persistSettings() {
     sniEnabled: chkSni.checked,
     timerPath,
     timerEnabled: chkTimer.checked,
+    useTimer: chkUseTimer.checked,
     theme: currentTheme,
     accent: currentTheme,
   });
@@ -426,6 +429,10 @@ btnSaveLayoutAplttp.addEventListener('click', async () => {
   chkTimer.checked = settings.timerEnabled !== undefined ? settings.timerEnabled : true;
   timerPath = settings.timerPath || null;
   displayPath(timerPathEl, timerPath);
+  // External timer: off unless chosen. Settings from before this option existed keep working
+  // the way they did — a configured timer path means it was in use.
+  chkUseTimer.checked = settings.useTimer !== undefined ? !!settings.useTimer : !!timerPath;
+  updateTimerVisibility();
   updateLuaVisibility();
 
   setupSkipped = settings.setupSkipped === true;
@@ -556,11 +563,19 @@ chkLua.addEventListener('change', () => { updateLuaVisibility(); persistSettings
 chkTracker.addEventListener('change', () => persistSettings());
 chkSni.addEventListener('change', () => persistSettings());
 
+// The TIMER switch on the main screen only exists while an external timer is in use.
+function usingTimer() { return chkUseTimer.checked; }
+function updateTimerVisibility() {
+  timerOption.style.display = usingTimer() ? '' : 'none';
+}
+
 async function chooseTimer() {
   const exe = await ipcRenderer.invoke('pick-exe', 'Select Timer Executable');
   if (exe) {
     timerPath = exe;
     displayPath(timerPathEl, timerPath);
+    chkUseTimer.checked = true;      // picking a timer means using it
+    updateTimerVisibility();
     persistSettings();
     setStatus('Timer set', 'success');
   }
@@ -568,6 +583,7 @@ async function chooseTimer() {
 }
 btnBrowseTimer.addEventListener('click', chooseTimer);
 chkTimer.addEventListener('change', () => persistSettings());
+chkUseTimer.addEventListener('change', () => { updateTimerVisibility(); persistSettings(); });
 
 // --- Drag & Drop ---
 dropZone.addEventListener('dragover', (e) => {
@@ -640,7 +656,7 @@ playBtn.addEventListener('click', async () => {
     launchTracker: chkTracker.checked,
     launchSni: chkSni.checked,
     sniPath,
-    launchTimer: chkTimer.checked,
+    launchTimer: usingTimer() && chkTimer.checked,
     timerPath,
   });
 
@@ -789,7 +805,7 @@ function renderGuideSummary(trackerSource) {
     ['Emulator', emulatorPath, 'not set', gone('emulatorPath', emulatorPath)],
     ['Lua connector', emulatorPath && !isBizhawk() ? 'n/a' : luaScriptPath, 'not set', gone('luaScriptPath', luaScriptPath)],
     ['SNI', sniPath, 'not set', gone('sniPath', sniPath)],
-    ['Timer', timerPath, 'skipped', gone('timerPath', timerPath)],
+    ['Timer', usingTimer() ? timerPath : null, 'not used', gone('timerPath', usingTimer() ? timerPath : null)],
     ['Seeds folder', stagingFolder, 'not set', gone('stagingFolder', stagingFolder)],
     ['Music packs', packsFolder ? `${packsFolder} (${packs.length} pack${packs.length === 1 ? '' : 's'})` : null, 'original soundtrack'],
     ['Tracker preset', trackerSource === 'custom' ? 'your last launch' : 'tracker defaults', 'tracker defaults'],
