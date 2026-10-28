@@ -1,6 +1,17 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, net, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
+
+// The tracker (a single-page app) is served from its own scheme; see registerTrackerProtocol().
+// Must be declared before the app is ready.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'po', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+]);
+// The tracker talks to SNI / QUsb2snes on localhost. Chromium's Local Network Access checks
+// would prompt (or silently refuse) that from a non-http origin; this is a desktop app whose
+// whole point is talking to local programs, so the checks are off.
+app.commandLine.appendSwitch('disable-features', 'LocalNetworkAccessChecks');
 const { exec, execSync, spawn } = require('child_process');
 const zlib = require('zlib');
 
@@ -88,8 +99,8 @@ function flushSettings() {
 let mainWindow = null;
 let trackerWindow = null;
 let settingsWindow = null;
-let trackerContentDims = null;
-let savedTrackerZoom = null;
+const trackerPopouts = { map: null, log: null };   // the tracker's own map / event-log popout windows
+let trackerContentDims = null;                     // natural (unscaled) size of the tracker page, reported by its preload
 
 // True if enough of the rectangle is on a connected display to grab and drag it.
 function boundsAreVisible(b) {
@@ -153,63 +164,181 @@ function createMainWindow() {
 }
 
 // ============================================================
-//  TRACKER — Direct Launch
+//  TRACKER — Muffins Tracker 2.0, served from po://tracker/
 // ============================================================
-// dims: the content size the settings page asked for (its LAUNCH TRACKER button computes
-// one); otherwise derived from the query. reload: an open tracker is reloaded with the
-// current query instead of just focused (settings page pressed LAUNCH TRACKER again).
-function openTrackerWindow({ dims = null, reload = false } = {}) {
-  const query = getTrackerQuery();
-  const parsedDims = dims || parseTrackerDims(query);
-  const trackerUrl = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${query}&r=${Date.now()}`;
+// The tracker is the React build of KrisDavie/alttptracker (branch react_rewrite) plus a few
+// additions of ours, kept on the `po` branch of Penderrin-Projects/alttptracker.
+// scripts/build-tracker.js builds the commit pinned in tracker-source.json into tracker/.
+//
+// It is a single-page app with real routes (/ is the Launch page, /tracker, /map, /event-log),
+// so it is served from its own scheme instead of file://: any path that is not a file comes back
+// as index.html and the app routes it. All tracker windows share this origin, so they share the
+// tracker's localStorage and IndexedDB (sessions, remembered settings).
+const TRACKER_ORIGIN = 'po://tracker';
+const TRACKER_LAUNCH_PAGE = `${TRACKER_ORIGIN}/`;
+// Our addition on the po branch: a fresh session from whatever the Launch page launched last
+// (or the tracker's defaults — standard open mode — if nothing was ever launched).
+const TRACKER_LAST_LAUNCH = `${TRACKER_ORIGIN}/tracker?last=1`;
+// The tracker's default layout (items + both maps) is 1344x448; used before the page has said
+// what size it really is.
+const TRACKER_DEFAULT_CONTENT = { width: 1344, height: 448 };
 
+function registerTrackerProtocol() {
+  const root = path.join(__dirname, 'tracker');
+  protocol.handle('po', (request) => {
+    let url;
+    try { url = new URL(request.url); } catch { return new Response('Bad request', { status: 400 }); }
+    if (url.host !== 'tracker') return new Response('Not found', { status: 404 });
+    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    let file = path.resolve(root, rel);
+    if (file !== root && !file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
+    let isFile = false;
+    try { isFile = fs.statSync(file).isFile(); } catch {}
+    if (!isFile) file = path.join(root, 'index.html');    // an app route, not a file
+    return net.fetch(pathToFileURL(file).toString());
+  });
+}
+
+function isTrackerUrl(url) {
+  try { const u = new URL(url); return u.protocol === 'po:' && u.host === 'tracker' ? u : null; } catch { return null; }
+}
+
+function parseWindowFeatures(features) {
+  const num = (k) => { const m = String(features || '').match(new RegExp(`${k}=(\\d+)`)); return m ? parseInt(m[1], 10) : 0; };
+  const width = num('width'), height = num('height');
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+// window.open() from any tracker page. The Launch page opens the tracker (and its popouts) that
+// way, and a direct launch opens its own popouts. Each becomes a top-level window of ours rather
+// than a Chromium popup (a popup closes when its opener closes — which is why the tracker used to
+// vanish when the settings window was closed). Ordinary web links go to the browser.
+function trackerWindowOpenHandler({ url, features }) {
+  if (/^https?:/i.test(url)) { shell.openExternal(url); return { action: 'deny' }; }
+  const target = isTrackerUrl(url);
+  if (!target) return { action: 'deny' };
+  const size = parseWindowFeatures(features);
+  if (target.pathname === '/tracker') {
+    // Launched from the Launch page: the tracker remembers it (po_last_launch) and so do we.
+    saveSettings({ trackerLaunched: true });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('tracker-configured');
+    openTrackerWindow({ url: target.href, reload: true, dims: size });
+  } else if (target.pathname === '/map' || target.pathname === '/event-log') {
+    openTrackerPopout(target.pathname === '/map' ? 'map' : 'log', target.href, size);
+  }
+  return { action: 'deny' };
+}
+
+function applyThemeTo(win) {
+  if (!win || win.isDestroyed()) return;
+  const theme = safeThemeName(loadSettings().theme || 'amber');
+  win.webContents.executeJavaScript(`if (typeof window.applyPoTheme === 'function') window.applyPoTheme('${theme}'); true`).catch(() => {});
+}
+
+function trackerWebPreferences() {
+  return { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') };
+}
+
+// url: a tracker route. Default is a fresh session from the last launch. reload: an open tracker
+// is pointed at the url instead of just focused (the Launch page launched again).
+// dims: the content size the Launch page asked for; otherwise the last size the page reported.
+function openTrackerWindow({ url = TRACKER_LAST_LAUNCH, reload = false, dims = null } = {}) {
   if (trackerWindow && !trackerWindow.isDestroyed()) {
-    if (reload) {
-      trackerContentDims = { width: parsedDims.width, height: parsedDims.height };
-      trackerWindow.loadURL(trackerUrl);
-    }
+    if (reload) trackerWindow.loadURL(url);
     trackerWindow.focus();
     return 'open';
   }
 
   const settings = loadSettings();
   const bounds = getSafeTrackerBounds(settings.trackerBounds);
+  const content = dims || settings.trackerDims || TRACKER_DEFAULT_CONTENT;
+  trackerContentDims = null;
 
   trackerWindow = new BrowserWindow({
-    width: bounds ? bounds.width : (parsedDims.width + 16),
-    height: bounds ? bounds.height : (parsedDims.height + 62),
+    width: bounds ? bounds.width : content.width,
+    height: bounds ? bounds.height : content.height,
+    useContentSize: !bounds,            // no saved window: size it to the content
     x: bounds ? bounds.x : undefined,
     y: bounds ? bounds.y : undefined,
-    minWidth: 300,
-    minHeight: 200,
+    minWidth: 224,
+    minHeight: 224,
     resizable: true,
     title: 'ALTTP Tracker',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
+    backgroundColor: '#242424',
+    webPreferences: trackerWebPreferences(),
   });
-
-  trackerContentDims = { width: parsedDims.width, height: parsedDims.height };
   trackerWindow.setMenuBarVisibility(false);
-  trackerWindow.loadURL(trackerUrl);
+  trackerWindow.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
+  trackerWindow.loadURL(url);
 
   trackerWindow.on('resize', saveTrackerBounds);
   trackerWindow.on('move', saveTrackerBounds);
-  trackerWindow.on('closed', () => { trackerWindow = null; });
-
-  // Apply saved theme once page loads
-  trackerWindow.webContents.on('did-finish-load', () => {
-    const theme = loadSettings().theme || 'amber';
-    trackerWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
+  trackerWindow.on('closed', () => {
+    trackerWindow = null;
+    for (const k of Object.keys(trackerPopouts)) {   // the popouts belong to this session
+      if (trackerPopouts[k] && !trackerPopouts[k].isDestroyed()) trackerPopouts[k].close();
+    }
   });
-
+  trackerWindow.webContents.on('did-finish-load', () => applyThemeTo(trackerWindow));
   return 'open';
 }
 
+// The tracker's map or event-log popout (kind 'map' | 'log'). One window per kind; each remembers
+// its own position and size. They are not part of saved layouts; they just come back where they were.
+function openTrackerPopout(kind, url, size) {
+  const existing = trackerPopouts[kind];
+  if (existing && !existing.isDestroyed()) { existing.loadURL(url); existing.focus(); return; }
+  const key = kind === 'map' ? 'trackerMapBounds' : 'trackerLogBounds';
+  const saved = getSafeTrackerBounds(loadSettings()[key]);
+  const content = size || (kind === 'map' ? { width: 896, height: 448 } : { width: 448, height: 300 });
+  const win = new BrowserWindow({
+    width: saved ? saved.width : content.width,
+    height: saved ? saved.height : content.height,
+    useContentSize: !saved,
+    x: saved ? saved.x : undefined,
+    y: saved ? saved.y : undefined,
+    minWidth: 200,
+    minHeight: 150,
+    title: kind === 'map' ? 'ALTTP Tracker - Map' : 'ALTTP Tracker - Event Log',
+    icon: path.join(__dirname, 'icon.ico'),
+    autoHideMenuBar: true,
+    backgroundColor: '#242424',
+    webPreferences: trackerWebPreferences(),
+  });
+  trackerPopouts[kind] = win;
+  win.setMenuBarVisibility(false);
+  win.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
+  win.loadURL(url);
+  const save = () => { if (!win.isDestroyed() && !win.isMinimized()) saveSettings({ [key]: win.getBounds() }); };
+  win.on('resize', save);
+  win.on('move', save);
+  win.on('closed', () => { if (trackerPopouts[kind] === win) trackerPopouts[kind] = null; });
+  win.webContents.on('did-finish-load', () => applyThemeTo(win));
+}
+
+// The tracker page tells us its natural (unscaled) size once it has rendered: the window keeps
+// that shape so the tracker fills it with no bars. The width is kept and the height follows,
+// clamped to the display, and the aspect ratio is locked for the user's own resizing.
+ipcMain.on('tracker-natural-size', (event, dims) => {
+  if (!trackerWindow || trackerWindow.isDestroyed() || event.sender !== trackerWindow.webContents) return;
+  const width = Number(dims && dims.width), height = Number(dims && dims.height);
+  if (!(width > 0 && height > 0)) return;
+  trackerContentDims = { width, height };
+  saveSettings({ trackerDims: trackerContentDims });
+
+  const ratio = width / height;
+  trackerWindow.setAspectRatio(ratio);
+  const [winW, winH] = trackerWindow.getSize();
+  const [contentW, contentH] = trackerWindow.getContentSize();
+  const chromeW = winW - contentW, chromeH = winH - contentH;
+  const area = screen.getDisplayMatching(trackerWindow.getBounds()).workArea;
+  let w = contentW, h = Math.round(w / ratio);
+  if (h + chromeH > area.height) { h = area.height - chromeH; w = Math.round(h * ratio); }
+  if (w + chromeW > area.width) { w = area.width - chromeW; h = Math.round(w / ratio); }
+  if (Math.abs(h - contentH) > 2 || Math.abs(w - contentW) > 2) trackerWindow.setContentSize(w, h);
+});
 // ============================================================
 //  RACE TIMER — Archipelago multiworld race stopwatch
 // ============================================================
@@ -340,112 +469,41 @@ ipcMain.handle('race-timer-on-top', (event, onTop) => {
   saveSettings({ raceTimerOnTop: !!onTop });
 });
 
-function parseTrackerDims(query) {
-  const params = {};
-  query.split('&').forEach(p => {
-    const [k, v] = p.split('=');
-    params[k] = v;
-  });
-
-  const d = params.d || '';
-  const map = d.charAt(0);
-  const sphere = d.charAt(3);
-  const scale = d.charAt(5);
-
-  let width = map === 'M' ? 1340 : 448;
-  let height;
-  if (map === 'V') { height = 1330; if (sphere === 'Y') width = 892; }
-  else if (map === 'C') { height = sphere === 'Y' ? 988 : 692; }
-  else { height = sphere === 'Y' ? 744 : 448; }
-
-  switch (scale) {
-    case 'D': width *= 2; height *= 2; break;
-    case 'E': width *= 1.5; height *= 1.5; break;
-    case 'F': break;
-    case 'T': width *= 0.75; height *= 0.75; break;
-    case 'H': width *= 0.5; height *= 0.5; break;
-    case 'Q': width *= 0.25; height *= 0.25; break;
-  }
-  return { width: Math.ceil(width), height: Math.ceil(height) };
-}
-
 // ============================================================
-//  TRACKER — Settings Window
+//  TRACKER — Settings window (the tracker's Launch page)
 // ============================================================
+// Tracker 2.0's Launch page is its settings page: presets, game settings, display and
+// autotracking options, sprites, past sessions. Its Launch button opens the tracker through
+// window.open(), which trackerWindowOpenHandler turns into our tracker window.
 function openSettingsWindow() {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus();
     return;
   }
 
+  const saved = getSafeTrackerBounds(loadSettings().settingsBounds);
   settingsWindow = new BrowserWindow({
-    width: 720,
-    height: 850,
-    minWidth: 500,
-    minHeight: 600,
+    width: saved ? saved.width : 1180,
+    height: saved ? saved.height : 860,
+    x: saved ? saved.x : undefined,
+    y: saved ? saved.y : undefined,
+    minWidth: 720,
+    minHeight: 540,
     title: 'ALTTPR PO Tracker Settings',
     icon: path.join(__dirname, 'icon.ico'),
     autoHideMenuBar: true,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
-    },
-    backgroundColor: '#0d1117',
+    backgroundColor: '#141517',
+    webPreferences: trackerWebPreferences(),
   });
 
   settingsWindow.setMenuBarVisibility(false);
-  settingsWindow.loadFile(path.join(__dirname, 'tracker', 'index.html'));
+  settingsWindow.webContents.setWindowOpenHandler(trackerWindowOpenHandler);
+  settingsWindow.loadURL(TRACKER_LAUNCH_PAGE);
+  settingsWindow.webContents.on('did-finish-load', () => applyThemeTo(settingsWindow));
 
-  const BASE_WIDTH = 720;
-  settingsWindow.on('resize', () => {
-    if (settingsWindow && !settingsWindow.isDestroyed()) {
-      const [w] = settingsWindow.getContentSize();
-      settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
-    }
-  });
-
-  settingsWindow.webContents.on('did-finish-load', () => {
-    settingsWindow.webContents.executeJavaScript(SETTINGS_PAGE_FLAGS_STUB).catch(() => {});
-    const [w] = settingsWindow.getContentSize();
-    settingsWindow.webContents.setZoomFactor(Math.max(0.5, Math.min(w / BASE_WIDTH, 1.5)));
-    // Apply saved theme
-    const theme = loadSettings().theme || 'amber';
-    settingsWindow.webContents.executeJavaScript(`if(typeof applyPoTheme==='function'){applyPoTheme('${safeThemeName(theme)}')}`).catch(() => {});
-  });
-
-  settingsWindow.webContents.setWindowOpenHandler(({ url, features }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url);
-      return { action: 'deny' };
-    }
-
-    // Save the tracker query for direct launches
-    const qIdx = url.indexOf('?');
-    if (qIdx >= 0) {
-      const query = url.substring(qIdx + 1).replace(/&r=\d+/, '');
-      saveSettings({ lastTrackerQuery: query });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('tracker-configured');
-      }
-    }
-
-    let width = 500, height = 1060;
-    if (features) {
-      const wMatch = features.match(/width=(\d+)/);
-      const hMatch = features.match(/height=(\d+)/);
-      if (wMatch) width = parseInt(wMatch[1]);
-      if (hMatch) height = parseInt(hMatch[1]);
-    }
-
-    // The page used window.open(); letting that through would make the tracker a child of
-    // the settings window, and Chromium closes such popups when their opener closes — which
-    // is why the tracker used to vanish when the settings window was closed. Open it as an
-    // ordinary top-level window of our own instead (the query is already saved above).
-    openTrackerWindow({ dims: { width, height }, reload: true });
-    return { action: 'deny' };
-  });
-
+  const save = () => { if (settingsWindow && !settingsWindow.isDestroyed() && !settingsWindow.isMinimized()) saveSettings({ settingsBounds: settingsWindow.getBounds() }); };
+  settingsWindow.on('resize', save);
+  settingsWindow.on('move', save);
   settingsWindow.on('closed', () => { settingsWindow = null; });
 }
 
@@ -522,6 +580,8 @@ function compileWindowHelper() {
 // things that only break once packaged (preload found? helper shipped and runnable? tracker
 // page loads?), write a JSON report, exit 0 or 1. Never touches the real settings.
 const SELFTEST_REPORT = process.env.PO_LAUNCHER_SELFTEST || null;
+// PO_LAUNCHER_SELFTEST_SHOTS=<dir>: also save screenshots of the windows the self-test opened.
+const SELFTEST_SHOTS = process.env.PO_LAUNCHER_SELFTEST_SHOTS || null;
 if (SELFTEST_REPORT) {
   app.setPath('userData', fs.mkdtempSync(path.join(require('os').tmpdir(), 'po-launcher-selftest-')));
 }
@@ -529,6 +589,10 @@ if (SELFTEST_REPORT) {
 async function runSelfTest() {
   const report = { version: app.getVersion(), electron: process.versions.electron, packaged: app.isPackaged, checks: {} };
   const check = (name, pass, detail) => { report.checks[name] = { pass: !!pass, detail }; };
+  const shot = async (win, name) => {
+    if (!SELFTEST_SHOTS || !win || win.isDestroyed()) return;
+    try { fs.mkdirSync(SELFTEST_SHOTS, { recursive: true }); fs.writeFileSync(path.join(SELFTEST_SHOTS, name), (await win.webContents.capturePage()).toPNG()); } catch {}
+  };
   const loaded = (win) => new Promise((resolve) => {
     if (!win.webContents.isLoading()) return resolve();
     win.webContents.once('did-finish-load', resolve);
@@ -550,12 +614,41 @@ async function runSelfTest() {
       check('WinHelper capture runs and returns JSON', Array.isArray(captured), `${captured.length} windows`);
     }
 
+    // The tracker (Muffins Tracker 2.0) is served from po://tracker/. Its Launch page and its
+    // tracker route must both render: a build or protocol problem shows up here, not on a user.
+    const rendered = (win, probe) => new Promise((resolve) => {
+      const started = Date.now();
+      const tick = async () => {
+        let r = null;
+        try { r = await win.webContents.executeJavaScript(probe); } catch {}
+        if (r || Date.now() - started > 20000) return resolve(r);
+        setTimeout(tick, 250);
+      };
+      tick();
+    });
     openSettingsWindow();
     await loaded(settingsWindow);
-    const tracker = await settingsWindow.webContents.executeJavaScript(
-      `({ api: Object.keys(window.electronAPI || {}), theme: typeof applyPoTheme === 'function', node: typeof require !== 'undefined' })`);
-    check('tracker settings page loads with its preload', tracker.api.includes('isElectron') && tracker.theme, tracker.api);
-    check('tracker page has no Node.js', tracker.node === false, tracker.node);
+    const launch = await rendered(settingsWindow,
+      `(() => { const root = document.getElementById('root'); if (!root || !root.children.length) return null;
+        return { title: document.title, api: Object.keys(window.electronAPI || {}), theme: typeof window.applyPoTheme === 'function',
+                 node: typeof require !== 'undefined', path: location.pathname, origin: location.protocol + '//' + location.host }; })()`);
+    check('tracker Launch page renders from po://tracker/', !!launch && launch.origin === 'po://tracker' && launch.path === '/', launch);
+    check('tracker Launch page has its preload', !!launch && launch.api.includes('isElectron') && launch.theme, launch && launch.api);
+    check('tracker page has no Node.js', !!launch && launch.node === false, launch && launch.node);
+    await new Promise(r => setTimeout(r, 500));
+    await shot(settingsWindow, 'launch-page.png');
+
+    openTrackerWindow();
+    await loaded(trackerWindow);
+    const tracker = await rendered(trackerWindow,
+      `(() => { const el = document.querySelector('[data-tracker-bounds]'); if (!el) return null;
+        return { path: location.pathname, search: location.search, width: parseFloat(el.style.width), height: parseFloat(el.style.height) }; })()`);
+    check('tracker route renders a session and reports its size', !!tracker && tracker.path === '/tracker' && /[?&]id=/.test(tracker.search) && tracker.width > 0, tracker);
+    const dims = await new Promise((resolve) => { const t0 = Date.now(); const tick = () => (trackerContentDims || Date.now() - t0 > 5000) ? resolve(trackerContentDims) : setTimeout(tick, 100); tick(); });
+    check('main received the tracker size and locked the aspect ratio', !!dims && dims.width > 0, dims);
+    await new Promise(r => setTimeout(r, 500));
+    await shot(trackerWindow, 'tracker.png');
+    await shot(mainWindow, 'launcher.png');
   } catch (err) {
     check('self-test ran to completion', false, err.stack);
   }
@@ -580,8 +673,7 @@ if (!gotInstanceLock) {
   });
 
   app.whenReady().then(() => {
-    const settings = loadSettings();
-    savedTrackerZoom = settings.zoom || null;
+    registerTrackerProtocol();
     createMainWindow();
     compileWindowHelper();
     if (SELFTEST_REPORT) runSelfTest();
@@ -922,136 +1014,24 @@ ipcMain.handle('open-release-page', () => { shell.openExternal(RELEASES_PAGE); }
 // page in a hidden window, waits for "Tracker auto-configured.", captures the query its LAUNCH
 // TRACKER button would open, and reloads the visible tracker with it. The saved preset is left
 // alone; the detected settings last for this tracker window only.
-const TRACKER_SCAN_TIMEOUT_MS = 20000;
-
-// The tracker's settings page shares autot.js with the tracker page but never defines the
-// `flags` object items.js creates there, and autotrackSetStatus() reads flags.autotracking on
-// every status update. Without this stub AUTO-CONFIGURE throws before it even connects. Injected
-// into both the hidden scan window and the visible settings window.
-const SETTINGS_PAGE_FLAGS_STUB = `window.flags = window.flags || { autotracking: 'N', doorshuffle: 'N', wildkeys: 'N', entrancemode: 'N',
-  trackinghost: (document.getElementById('autotrackinghost') || {}).value || 'localhost',
-  trackingport: parseInt((document.getElementById('autotrackingport') || {}).value) || 23074 }; true`;
-
-async function runTrackerScan() {
-  const win = new BrowserWindow({
-    show: false, width: 500, height: 850,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, preload: path.join(__dirname, 'preload.js') },
-  });
-  let capturedUrl = null;
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.includes('tracker.html')) capturedUrl = url;
-    return { action: 'deny' };
-  });
-  const status = () => win.webContents.executeJavaScript(`(document.getElementById('autotrackingstatus') || {}).textContent || ''`).catch(() => '');
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  try {
-    await win.loadFile(path.join(__dirname, 'tracker', 'index.html'));
-    await win.webContents.executeJavaScript(SETTINGS_PAGE_FLAGS_STUB);
-    await win.webContents.executeJavaScript('autotrackTrackerConfigure(); true');
-    const started = Date.now();
-    while (Date.now() - started < TRACKER_SCAN_TIMEOUT_MS) {
-      await sleep(250);
-      // the page prefixes its status with "Autotracking Status:"; look at the message itself
-      const text = String(await status()).replace(/^.*?Status:\s*/i, '').trim();
-      if (/auto-configured/i.test(text)) {
-        await win.webContents.executeJavaScript('launch_tracker(); true');
-        await sleep(300);
-        if (!capturedUrl) return { ok: false, error: 'could not read the detected settings' };
-        return { ok: true, query: capturedUrl.substring(capturedUrl.indexOf('?') + 1).replace(/&r=\d+/, '') };
-      }
-      if (/^Error$|^Disconnected|No device|not supported|^Failed|^Could not load/i.test(text)) {
-        return { ok: false, error: text === 'Error' ? 'SNI is not running or not connected' : text };
-      }
-    }
-    return { ok: false, error: 'timed out. Is the game running and connected to SNI?' };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
-  }
-}
-
-// The settings page keeps its own form state, so the query it produces carries whatever display
-// choices were last made there. Only the seed decides the game flags (f) and starting items (s);
-// map mode, colours, sprite and autotracking (d, a, p, ...) stay as the tracker is running them.
-function mergeScannedQuery(currentQuery, scannedQuery) {
-  const cur = new URLSearchParams(currentQuery);
-  const scan = new URLSearchParams(scannedQuery);
-  for (const key of ['f', 's']) if (scan.has(key)) cur.set(key, scan.get(key));
-  cur.delete('r');
-  return cur.toString();
-}
-
-ipcMain.handle('tracker-scan', async () => {
-  if (!trackerWindow || trackerWindow.isDestroyed()) return { ok: false, error: 'tracker window is not open' };
-  const result = await runTrackerScan();
-  if (result.ok && trackerWindow && !trackerWindow.isDestroyed()) {
-    const running = trackerWindow.webContents.getURL();
-    const currentQuery = running.includes('?') ? running.slice(running.indexOf('?') + 1) : getTrackerQuery();
-    result.query = mergeScannedQuery(currentQuery, result.query);
-    const url = `file://${path.join(__dirname, 'tracker', 'tracker.html').replace(/\\/g, '/')}?${result.query}&r=${Date.now()}`;
-    trackerWindow.loadURL(url);                     // same window, same size; theme and zoom re-apply on load
-  }
-  return result;
-});
-
 // ============================================================
 //  IPC — Tracker Windows
 // ============================================================
 ipcMain.handle('open-tracker', () => openTrackerWindow());
 ipcMain.handle('open-race-timer', () => openRaceTimerWindow());
 ipcMain.handle('open-tracker-settings', () => { openSettingsWindow(); });
-// The tracker preset the launcher ships with. It is Anthony's own: standard open-mode
-// settings, autotracking through SNI on localhost:23074, Link sprite. A preset the user saves
-// from the tracker settings page (LAUNCH TRACKER) replaces it.
-const DEFAULT_TRACKER_QUERY = 'f=ONNNNNNNN0000NNNNNGC7C7RNN&d=VYNNOF00001&a=Y23074localhost&s=00000000000000000000000000&p=link';
-function getTrackerQuery() { return loadSettings().lastTrackerQuery || DEFAULT_TRACKER_QUERY; }
 
-// Always true now that a default exists; kept so older callers keep working.
+// Always true: the tracker launches into standard open mode until something else is launched.
 ipcMain.handle('has-tracker-config', () => true);
-// 'custom' when the user has saved their own preset, 'default' when the built-in one is in use.
-ipcMain.handle('tracker-preset-source', () => (loadSettings().lastTrackerQuery ? 'custom' : 'default'));
+// 'custom' once the user has launched from the tracker's Launch page (that launch is what the
+// launcher reuses), 'default' while the tracker's own defaults are in use.
+ipcMain.handle('tracker-preset-source', () => (loadSettings().trackerLaunched ? 'custom' : 'default'));
 
 // Theme propagation to all open tracker/settings windows
 ipcMain.handle('set-theme', (event, themeName) => {
   themeName = safeThemeName(themeName);
-  const js = `if(typeof applyPoTheme==='function'){applyPoTheme('${themeName}')}`;
-  if (trackerWindow && !trackerWindow.isDestroyed()) {
-    trackerWindow.webContents.executeJavaScript(js).catch(() => {});
-  }
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.webContents.executeJavaScript(js).catch(() => {});
-  }
-  if (raceTimerWindow && !raceTimerWindow.isDestroyed()) {
-    raceTimerWindow.webContents.executeJavaScript(js).catch(() => {});
-  }
-  // Also save to settings so tracker windows opened later use it
-  saveSettings({ theme: themeName });
-});
-
-// Tracker preload support
-ipcMain.handle('get-app-path', () => app.getAppPath());
-ipcMain.handle('get-content-dimensions', () => trackerContentDims);
-
-ipcMain.handle('fit-window-to-content', (event, contentW, contentH) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) {
-    const [winW, winH] = win.getSize();
-    const [clientW, clientH] = win.getContentSize();
-    win.setSize(contentW + (winW - clientW), contentH + (winH - clientH));
-  }
-});
-
-ipcMain.handle('save-zoom', (_e, zoom) => {
-  savedTrackerZoom = zoom;
-  saveSettings({ zoom });
-});
-
-ipcMain.handle('get-saved-zoom', () => savedTrackerZoom);
-
-ipcMain.handle('set-aspect-ratio', (event, ratio) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (win) win.setAspectRatio(ratio);
+  saveSettings({ theme: themeName });   // first, so applyThemeTo() reads the new one
+  for (const win of [trackerWindow, settingsWindow, raceTimerWindow, trackerPopouts.map, trackerPopouts.log]) applyThemeTo(win);
 });
 
 // Debug dumps (capture-raw.txt, layout-debug.json, restore-debug.json, *-error.txt).
@@ -1413,7 +1393,7 @@ ipcMain.handle('launch-rom', async (_e, {
     // Companions we found already running and therefore did not start again
     const alreadyRunning = [];
 
-    // Open built-in tracker
+    // Open the tracker (a fresh session from the last launch)
     let trackerResult = 'skipped';
     if (launchTracker) {
       trackerResult = openTrackerWindow();

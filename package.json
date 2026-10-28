@@ -1,12 +1,13 @@
 {
   "name": "alttpr-po-launcher",
-  "version": "2.7.1",
+  "version": "2.8.0",
   "description": "ALTTPR PO Launcher - Launcher, Tracker & Music Pack Manager",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "node scripts/build-tracker.js && electron .",
+    "build:tracker": "node scripts/build-tracker.js",
     "build:helper": "node scripts/build-helper.js",
-    "build": "node scripts/build-helper.js && electron-builder --win --x64 --publish never"
+    "build": "node scripts/build-tracker.js && node scripts/build-helper.js && electron-builder --win --x64 --publish never"
   },
   "build": {
     "appId": "com.alttpr.po-launcher",
@@ -25,6 +26,7 @@
       "icon.png",
       "native/WinHelper.cs",
       "fonts/**/*",
+      "tracker-source.json",
       "tracker/**/*",
       "racetimer/**/*"
     ],

@@ -12,9 +12,9 @@ const path = {
   extname: (name) => { const i = name.lastIndexOf('.'); return i > 0 ? name.slice(i) : ''; },
 };
 
-// --- Theme Definitions (shared with tracker po-themes.js) ---
+// --- Theme Definitions (shared with the tracker and the race timer) ---
 // Workbench: one charcoal ground for every theme; the accent is what changes.
-// (Same table as tracker/js/po-themes.js — keep them in step.)
+// (Same accents as src/lib/poTheme.ts on the tracker fork's po branch and racetimer.html — keep them in step.)
 const WB = { bg: "#141517", bgPanel: "#1b1d21", bgInput: "#101113", border: "#26282d", borderLight: "#33363d", headerBg: "#141517" };
 const poThemes = {
   amber:  { accent: "#e8a33d", hover: "#f2b95c", glow: "rgba(232, 163, 61, 0.14)", ...WB },
@@ -383,7 +383,7 @@ btnTrackerSettings.addEventListener('click', () => {
 });
 
 ipcRenderer.on('tracker-configured', () => {
-  setStatus('Tracker configured! You can now launch directly.', 'success');
+  setStatus('Tracker launched. Play and Launch tracker now use these settings.', 'success');
   guideRefresh();
 });
 
@@ -770,7 +770,7 @@ function guideRefresh() {
   }
   ipcRenderer.invoke('tracker-preset-source').then((source) => {
     const el = g('guide-tracker-status'); el.classList.add('good'); el.classList.remove('not-set');
-    el.textContent = source === 'custom' ? 'Your own preset' : 'Built-in preset';
+    el.textContent = source === 'custom' ? 'Your last launch' : 'Tracker defaults';
     if (guide.steps[guide.index] === 'done') renderGuideSummary(source);
   });
   if (guide.steps.includes('archipelago')) {
@@ -792,7 +792,7 @@ function renderGuideSummary(trackerSource) {
     ['Timer', timerPath, 'skipped', gone('timerPath', timerPath)],
     ['Seeds folder', stagingFolder, 'not set', gone('stagingFolder', stagingFolder)],
     ['Music packs', packsFolder ? `${packsFolder} (${packs.length} pack${packs.length === 1 ? '' : 's'})` : null, 'original soundtrack'],
-    ['Tracker preset', trackerSource === 'custom' ? 'your own' : 'built-in default', 'built-in default'],
+    ['Tracker preset', trackerSource === 'custom' ? 'your last launch' : 'tracker defaults', 'tracker defaults'],
   ];
   if (guide.steps.includes('archipelago')) rows.push(['AP fix', g('guide-ap-fix').checked ? 'on' : null, 'off']);
   const box = g('guide-summary'); box.innerHTML = '';
