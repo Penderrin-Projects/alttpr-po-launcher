@@ -643,9 +643,17 @@ async function runSelfTest() {
     check('tracker Launch page renders from po://tracker/', !!launch && launch.origin === 'po://tracker' && launch.path === '/', launch);
     check('tracker Launch page has its preload', !!launch && launch.api.includes('isElectron') && launch.theme, launch && launch.api);
     check('tracker page has no Node.js', !!launch && launch.node === false, launch && launch.node);
+    // PO_LAUNCHER_SELFTEST_TAB=<tab text>: open that tab of the Launch page before the screenshot
+    if (process.env.PO_LAUNCHER_SELFTEST_TAB) {
+      await settingsWindow.webContents.executeJavaScript(`(() => { const t = [...document.querySelectorAll('[role="tab"]')].find(b => b.textContent.trim() === ${JSON.stringify(process.env.PO_LAUNCHER_SELFTEST_TAB)}); if (t) t.click(); return !!t; })()`).catch(() => {});
+    }
     await new Promise(r => setTimeout(r, 500));
     await shot(settingsWindow, 'launch-page.png');
 
+    // PO_LAUNCHER_SELFTEST_PREFS=<json>: remembered tracker preferences to seed before the tracker opens
+    if (process.env.PO_LAUNCHER_SELFTEST_PREFS) {
+      await settingsWindow.webContents.executeJavaScript(`localStorage.setItem('muffins_launcher_prefs', JSON.stringify(Object.assign(JSON.parse(localStorage.getItem('muffins_launcher_prefs') || '{}'), ${process.env.PO_LAUNCHER_SELFTEST_PREFS}))); true`).catch(() => {});
+    }
     openTrackerWindow();
     await loaded(trackerWindow);
     const tracker = await rendered(trackerWindow,
@@ -655,6 +663,10 @@ async function runSelfTest() {
     const dims = await new Promise((resolve) => { const t0 = Date.now(); const tick = () => (trackerContentDims || Date.now() - t0 > 5000) ? resolve(trackerContentDims) : setTimeout(tick, 100); tick(); });
     check('main received the tracker size and locked the aspect ratio', !!dims && dims.width > 0, dims);
     await new Promise(r => setTimeout(r, 500));
+    // PO_LAUNCHER_SELFTEST_PROBE=<js>: an expression evaluated in the tracker window, reported as "probe"
+    if (process.env.PO_LAUNCHER_SELFTEST_PROBE) {
+      report.probe = await trackerWindow.webContents.executeJavaScript(process.env.PO_LAUNCHER_SELFTEST_PROBE).catch((e) => String(e));
+    }
     await shot(trackerWindow, 'tracker.png');
     await shot(mainWindow, 'launcher.png');
   } catch (err) {
