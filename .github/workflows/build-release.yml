@@ -43,6 +43,11 @@ jobs:
             exit 1
           fi
 
+      # The layout-restore helper's matching and placement rules, run against fake windows
+      # (scripts/test-helper.js compiles the production C# methods with the runner's csc).
+      - name: Window helper tests
+        run: npm run test:helper
+
       # builds the tracker into tracker/, compiles native/WinHelper.cs with the runner's .NET
       # Framework csc, then packages
       - run: npm run build
