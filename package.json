@@ -7,6 +7,7 @@
     "start": "node scripts/build-tracker.js && electron .",
     "build:tracker": "node scripts/build-tracker.js",
     "build:helper": "node scripts/build-helper.js",
+    "test:helper": "node scripts/test-helper.js",
     "build": "node scripts/build-tracker.js && node scripts/build-helper.js && electron-builder --win --x64 --publish never"
   },
   "build": {
