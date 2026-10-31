@@ -538,7 +538,7 @@ function compileWindowHelper() {
   if (!fs.existsSync(helperDir)) fs.mkdirSync(helperDir, { recursive: true });
   winHelperExePath = path.join(helperDir, 'WinHelper.exe');
 
-  const HELPER_VERSION = '24';
+  const HELPER_VERSION = '25';
   const versionFile = path.join(helperDir, 'version.txt');
 
   // Reuse if already compiled at current version

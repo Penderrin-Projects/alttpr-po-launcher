@@ -91,7 +91,7 @@ Every pull request gets the same build + self-test, with the exe attached to the
 
 These were learned the hard way during the original build. Please read before "simplifying".
 
-- **BizHawk's main window is never moved.** `MoveWindow`/`ShowWindow` on it during form initialisation crashes BizHawk's splitter. `ApplyRestore` skips any non-minimised EmuHawk window; BizHawk positions itself. Only the Lua Console is touched, and only after its title has settled.
+- **BizHawk's main window is never moved or minimized.** `MoveWindow`/`ShowWindow` on it during form initialisation crashes BizHawk's splitter. EmuHawk windows must match by title, never by process alone. Only a saved minimized Lua Console is touched, after its live title identifies it; a timeout leaves the window alone. BizHawk positions itself.
 - **The real Lua script goes straight to `--lua=`.** A delayed `dofile()` loader cannot work: `Connector.lua` loads native DLLs that depend on BizHawk's own script-loading context. Loading the script into an already-positioned console was tried three ways (`WM_DROPFILES`, SendKeys, menu `WM_COMMAND`) and abandoned.
 - **Companions are started through `cmd.exe` on purpose** (`launchApp`). Node puts direct, non-detached children into a kill-on-close job object: a directly spawned emulator dies the instant the launcher closes. Through `cmd.exe`, the wrapper is the job member and the app outlives the launcher. Output is ignored rather than piped, because `exec()` buffers 1 MB and then breaks the child's stdout.
 - **SNI is just launched.** Four ways of hiding its console were tried; SNI has its own option. It is deliberately not part of layout capture.

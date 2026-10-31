@@ -151,10 +151,12 @@ class WinHelper {
             }
 
             // Pass 2: for still-unrestored targets, match any unmatched window
-            // from the same process (catches Lua Console before title is set)
+            // from the same process. EmuHawk windows must wait for a title match:
+            // its main window and Lua Console must never be interchangeable.
             for (int i = 0; i < targets.Count; i++) {
                 if (restored[i]) continue;
                 var t = targets[i];
+                if (IsEmuHawk(t)) continue;
                 foreach (var h in handles) {
                     if (matchedHandles.Contains(h)) continue;
                     uint wpid; GetWindowThreadProcessId(h, out wpid);
@@ -208,7 +210,16 @@ class WinHelper {
     }
 
     static bool WantsSettle(WinInfo t) {
-        return !t.minimized && t.process != "EmuHawk";
+        return !t.minimized && !IsEmuHawk(t);
+    }
+
+    static bool IsEmuHawk(WinInfo t) {
+        return string.Equals(t.process, "EmuHawk", StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool IsLuaConsole(string title) {
+        return !string.IsNullOrEmpty(title) &&
+               title.IndexOf("Lua Console", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     static void Settle(List<Settling> settling) {
@@ -229,20 +240,20 @@ class WinHelper {
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndAfter, int x, int y, int cx, int cy, uint flags);
 
     static void ApplyRestore(IntPtr h, WinInfo t) {
-        if (t.process == "EmuHawk") {
-            // BizHawk manages its own window positions.
-            // For minimized windows (Lua Console), wait for form init to complete
-            // by polling until the window title stabilizes (no longer placeholder),
-            // then minimize before the Lua script starts blocking.
-            if (t.minimized) {
+        if (IsEmuHawk(t)) {
+            // BizHawk manages its main window. Only a positively identified Lua
+            // Console may inherit a saved minimized state, never the main form.
+            if (t.minimized && IsLuaConsole(t.title)) {
                 var initStart = DateTime.Now;
                 while ((DateTime.Now - initStart).TotalSeconds < 5) {
-                    var title = GetTitle(h);
-                    // Title changes from placeholder to "Lua Console" when OnLoad completes
-                    if (title.Contains("Lua Console")) break;
+                    if (!IsWindow(h)) return;
+                    if (IsLuaConsole(GetTitle(h))) {
+                        ShowWindow(h, 6);
+                        return;
+                    }
                     Thread.Sleep(50);
                 }
-                ShowWindow(h, 6);
+                // A timeout is not evidence that this is the console. Leave it alone.
             }
             // Non-minimized EmuHawk windows: skip entirely
             return;
