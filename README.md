@@ -67,7 +67,7 @@ The tracker is built from source by `scripts/build-tracker.js` (see below); it n
 3. The **Build & draft release** workflow builds on a Windows runner, boots the packaged app in self-test mode, and creates a *draft* release with the exe attached.
 4. Review the notes and press **Publish**. Publishing by hand is what triggers the Discord notification; a release published by a workflow's own token would not.
 
-Every pull request gets the same build + self-test, with the exe attached to the run as an artifact.
+Every pull request gets the same build + self-test, with the exe attached to the run as an artifact. CI also runs `npm run test:helper` first: `scripts/test-helper.js` compiles the layout-restore helper's real C# methods against fake windows and checks the matching rules (BizHawk's main window is never mistaken for the Lua Console, other apps keep their process fallback, and so on).
 
 ### Self-test
 
